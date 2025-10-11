@@ -172,6 +172,10 @@ This means: Focus on clean, optimal implementations without worrying about exist
 ### Build & Development Commands
 
 ```bash
+# Install dependencies (optional - build.sh does this automatically)
+./scripts/install-deps.sh         # Install only if node_modules missing
+./scripts/install-deps.sh --force # Force reinstall all dependencies
+
 # Build entire project (from root)
 ./scripts/build.sh              # Standard build with formatting
 ./scripts/build.sh --install    # Force npm install in all packages
