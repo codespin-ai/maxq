@@ -115,4 +115,50 @@ export class TestDatabase {
     if (!this.db) throw new Error("Database not initialized");
     return this.db;
   }
+
+  /**
+   * Wait for a SQL query to return rows that match a condition
+   * Polls the database at regular intervals until condition is met or timeout
+   *
+   * @param query - Raw SQL query string with ? placeholders
+   * @param params - Array of query parameters (positional)
+   * @param options - Wait options (timeout, interval, condition)
+   * @returns Query results when condition is met
+   * @throws Error if timeout is reached
+   */
+  public async waitForSql<T = any>(
+    query: string,
+    params: any[] = [],
+    options: {
+      timeout?: number;
+      interval?: number;
+      condition?: (rows: T[]) => boolean;
+    } = {},
+  ): Promise<T[]> {
+    if (!this.db) throw new Error("Database not initialized");
+
+    const timeout = options.timeout || 5000; // 5 seconds default
+    const interval = options.interval || 100; // 100ms default
+    const condition = options.condition || ((rows) => rows.length > 0);
+
+    const startTime = Date.now();
+
+    while (true) {
+      const rows = await this.db
+        .raw(query, params)
+        .then((result) => result.rows);
+
+      if (condition(rows)) {
+        return rows;
+      }
+
+      if (Date.now() - startTime > timeout) {
+        throw new Error(
+          `waitForSql timeout after ${timeout}ms. Query: ${query}. Last result: ${JSON.stringify(rows)}`,
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
 }

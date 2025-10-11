@@ -7,6 +7,7 @@ export interface TestServerOptions {
   maxRetries?: number;
   retryDelay?: number;
   logger?: Logger;
+  flowsRoot?: string;
 }
 
 export class TestServer {
@@ -16,6 +17,7 @@ export class TestServer {
   private maxRetries: number;
   private retryDelay: number;
   private logger: Logger;
+  private flowsRoot: string;
 
   constructor(options: TestServerOptions = {}) {
     this.port = options.port || 5099;
@@ -23,6 +25,7 @@ export class TestServer {
     this.maxRetries = options.maxRetries || 30;
     this.retryDelay = options.retryDelay || 1000;
     this.logger = options.logger || consoleLogger;
+    this.flowsRoot = options.flowsRoot || "./flows";
   }
 
   private async killProcessOnPort(): Promise<void> {
@@ -62,7 +65,7 @@ export class TestServer {
         MAXQ_SERVER_PORT: this.port.toString(),
         MAXQ_DATABASE_URL: databaseUrl, // Constructed database URL for test database
         MAXQ_API_KEY: process.env.MAXQ_API_KEY || "test-token",
-        MAXQ_FLOWS_ROOT: process.env.MAXQ_FLOWS_ROOT || "./flows",
+        MAXQ_FLOWS_ROOT: this.flowsRoot,
       };
 
       // Start the server directly
@@ -163,5 +166,22 @@ export class TestServer {
         }, 2000);
       });
     }
+  }
+
+  async reconfigure(options: Partial<TestServerOptions>): Promise<void> {
+    // Update configuration
+    if (options.flowsRoot !== undefined) {
+      this.flowsRoot = options.flowsRoot;
+    }
+    if (options.port !== undefined) {
+      this.port = options.port;
+    }
+    if (options.dbName !== undefined) {
+      this.dbName = options.dbName;
+    }
+
+    // Restart server with new configuration
+    await this.stop();
+    await this.start();
   }
 }
