@@ -9,6 +9,7 @@ import { testDb, client, testServer } from "../test-setup.js";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { Run } from "@codespin/maxq-server";
 
 describe("Workflow Execution E2E", () => {
   let flowsRoot: string;
@@ -64,7 +65,7 @@ exit 0
     await testServer.reconfigure({ flowsRoot });
 
     // Create run via API
-    const createResponse = await client.post("/api/v1/runs", {
+    const createResponse = await client.post<Run>("/api/v1/runs", {
       flowName: "simple-flow",
       input: { test: "data" },
     });
@@ -73,53 +74,76 @@ exit 0
     const runId = createResponse.data.id;
 
     // Wait for run to complete (status changes from 'pending' to 'completed')
-    const completedRuns = await testDb.waitForSql<{
-      id: string;
-      status: string;
-    }>(
-      "SELECT id, status FROM run WHERE id = ? AND status = ?",
-      [runId, "completed"],
+    const completedRuns = await testDb.waitForQuery<
+      { runId: string; status: string },
+      { id: string; status: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId && r.status === p.status)
+          .select((r) => ({ id: r.id, status: r.status })),
+      { runId, status: "completed" },
       { timeout: 3000 },
     );
 
     expect(completedRuns).to.have.lengthOf(1);
-    expect(completedRuns[0].status).to.equal("completed");
+    expect(completedRuns[0]!.status).to.equal("completed");
 
     // Verify run details
-    const runResponse = await client.get(`/api/v1/runs/${runId}`);
+    const runResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
     expect(runResponse.data.status).to.equal("completed");
     expect(runResponse.data.flowName).to.equal("simple-flow");
 
     // Verify stage was created
-    const stages = await testDb.waitForSql<{
-      name: string;
-      status: string;
-      final: boolean;
-    }>("SELECT name, status, final FROM stage WHERE run_id = ?", [runId]);
+    const stages = await testDb.waitForQuery<
+      { runId: string },
+      { name: string; status: string; final: boolean }
+    >(
+      (q, p) =>
+        q
+          .from("stage")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ name: s.name, status: s.status, final: s.final })),
+      { runId },
+    );
 
     expect(stages).to.have.lengthOf(1);
-    expect(stages[0].name).to.equal("execution");
-    expect(stages[0].status).to.equal("completed");
-    expect(stages[0].final).to.equal(true);
+    expect(stages[0]!.name).to.equal("execution");
+    expect(stages[0]!.status).to.equal("completed");
+    expect(stages[0]!.final).to.equal(true);
 
     // Verify step was created with stdout/stderr
-    const steps = await testDb.waitForSql<{
-      name: string;
-      status: string;
-      stdout: string;
-      stderr: string;
-      sequence: number;
-    }>(
-      "SELECT name, status, stdout, stderr, sequence FROM step WHERE run_id = ?",
-      [runId],
+    const steps = await testDb.waitForQuery<
+      { runId: string },
+      {
+        name: string;
+        status: string;
+        stdout: string;
+        stderr: string;
+        sequence: number;
+      }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({
+            name: s.name,
+            status: s.status,
+            stdout: s.stdout,
+            stderr: s.stderr,
+            sequence: s.sequence,
+          })),
+      { runId },
     );
 
     expect(steps).to.have.lengthOf(1);
-    expect(steps[0].name).to.equal("hello-step");
-    expect(steps[0].status).to.equal("completed");
-    expect(steps[0].sequence).to.equal(0);
-    expect(steps[0].stdout).to.include("Hello from step");
-    expect(steps[0].stderr).to.include("Step error");
+    expect(steps[0]!.name).to.equal("hello-step");
+    expect(steps[0]!.status).to.equal("completed");
+    expect(steps[0]!.sequence).to.equal(0);
+    expect(steps[0]!.stdout).to.include("Hello from step");
+    expect(steps[0]!.stderr).to.include("Step error");
   });
 
   it("should execute multi-stage workflow with callbacks", async () => {
@@ -179,46 +203,65 @@ echo "Executed ${stepName}"
     await testServer.reconfigure({ flowsRoot });
 
     // Create run
-    const createResponse = await client.post("/api/v1/runs", {
+    const createResponse = await client.post<Run>("/api/v1/runs", {
       flowName: "multi-stage-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to complete
-    await testDb.waitForSql(
-      "SELECT id FROM run WHERE id = ? AND status = ?",
-      [runId, "completed"],
+    await testDb.waitForQuery<
+      { runId: string; status: string },
+      { id: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId && r.status === p.status)
+          .select((r) => ({ id: r.id })),
+      { runId, status: "completed" },
       { timeout: 3000 },
     );
 
     // Verify both stages were created
-    const stages = await testDb.waitForSql<{
-      name: string;
-      status: string;
-      final: boolean;
-    }>(
-      "SELECT name, status, final FROM stage WHERE run_id = ? ORDER BY created_at",
-      [runId],
+    const stages = await testDb.waitForQuery<
+      { runId: string },
+      { name: string; status: string; final: boolean }
+    >(
+      (q, p) =>
+        q
+          .from("stage")
+          .where((s) => s.run_id === p.runId)
+          .orderBy((s) => s.created_at)
+          .select((s) => ({ name: s.name, status: s.status, final: s.final })),
+      { runId },
       { condition: (rows) => rows.length === 2 },
     );
 
     expect(stages).to.have.lengthOf(2);
-    expect(stages[0].name).to.equal("stage-1");
-    expect(stages[0].final).to.equal(false);
-    expect(stages[1].name).to.equal("stage-2");
-    expect(stages[1].final).to.equal(true);
+    expect(stages[0]!.name).to.equal("stage-1");
+    expect(stages[0]!.final).to.equal(false);
+    expect(stages[1]!.name).to.equal("stage-2");
+    expect(stages[1]!.final).to.equal(true);
 
     // Verify both steps were created
-    const steps = await testDb.waitForSql<{ name: string }>(
-      "SELECT name FROM step WHERE run_id = ? ORDER BY created_at",
-      [runId],
+    const steps = await testDb.waitForQuery<
+      { runId: string },
+      { name: string }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .orderBy((s) => s.created_at)
+          .select((s) => ({ name: s.name })),
+      { runId },
       { condition: (rows) => rows.length === 2 },
     );
 
     expect(steps).to.have.lengthOf(2);
-    expect(steps[0].name).to.equal("step-1");
-    expect(steps[1].name).to.equal("step-2");
+    expect(steps[0]!.name).to.equal("step-1");
+    expect(steps[1]!.name).to.equal("step-2");
   });
 
   it("should handle workflow with DAG dependencies", async () => {
@@ -266,16 +309,23 @@ echo "Executed ${stepName}"
     await testServer.reconfigure({ flowsRoot });
 
     // Create run
-    const createResponse = await client.post("/api/v1/runs", {
+    const createResponse = await client.post<Run>("/api/v1/runs", {
       flowName: "dag-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for all 4 steps to complete
-    const steps = await testDb.waitForSql<{ name: string; status: string }>(
-      "SELECT name, status FROM step WHERE run_id = ?",
-      [runId],
+    const steps = await testDb.waitForQuery<
+      { runId: string },
+      { name: string; status: string }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ name: s.name, status: s.status })),
+      { runId },
       {
         timeout: 3000,
         condition: (rows) =>
@@ -289,10 +339,17 @@ echo "Executed ${stepName}"
     expect(stepNames).to.deep.equal(["aggregate", "init", "task-a", "task-b"]);
 
     // Verify run completed
-    await testDb.waitForSql("SELECT id FROM run WHERE id = ? AND status = ?", [
-      runId,
-      "completed",
-    ]);
+    await testDb.waitForQuery<
+      { runId: string; status: string },
+      { id: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId && r.status === p.status)
+          .select((r) => ({ id: r.id })),
+      { runId, status: "completed" },
+    );
   });
 
   it("should handle workflow failure and mark run as failed", async () => {
@@ -335,40 +392,61 @@ exit 1
     await testServer.reconfigure({ flowsRoot });
 
     // Create run
-    const createResponse = await client.post("/api/v1/runs", {
+    const createResponse = await client.post<Run>("/api/v1/runs", {
       flowName: "failing-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to fail
-    const failedRuns = await testDb.waitForSql<{ status: string }>(
-      "SELECT status FROM run WHERE id = ? AND status = ?",
-      [runId, "failed"],
+    const failedRuns = await testDb.waitForQuery<
+      { runId: string; status: string },
+      { status: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId && r.status === p.status)
+          .select((r) => ({ status: r.status })),
+      { runId, status: "failed" },
       { timeout: 3000 },
     );
 
     expect(failedRuns).to.have.lengthOf(1);
-    expect(failedRuns[0].status).to.equal("failed");
+    expect(failedRuns[0]!.status).to.equal("failed");
 
     // Verify stage was marked as failed
-    const stages = await testDb.waitForSql<{ status: string }>(
-      "SELECT status FROM stage WHERE run_id = ?",
-      [runId],
+    const stages = await testDb.waitForQuery<
+      { runId: string },
+      { status: string }
+    >(
+      (q, p) =>
+        q
+          .from("stage")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ status: s.status })),
+      { runId },
     );
 
     expect(stages).to.have.lengthOf(1);
-    expect(stages[0].status).to.equal("failed");
+    expect(stages[0]!.status).to.equal("failed");
 
     // Verify step was marked as failed with stdout
-    const steps = await testDb.waitForSql<{ status: string; stdout: string }>(
-      "SELECT status, stdout FROM step WHERE run_id = ?",
-      [runId],
+    const steps = await testDb.waitForQuery<
+      { runId: string },
+      { status: string; stdout: string }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ status: s.status, stdout: s.stdout })),
+      { runId },
     );
 
     expect(steps).to.have.lengthOf(1);
-    expect(steps[0].status).to.equal("failed");
-    expect(steps[0].stdout).to.include("About to fail");
+    expect(steps[0]!.status).to.equal("failed");
+    expect(steps[0]!.stdout).to.include("About to fail");
   });
 
   it("should handle step retry logic", async () => {
@@ -426,32 +504,46 @@ exit 0
     await testServer.reconfigure({ flowsRoot });
 
     // Create run
-    const createResponse = await client.post("/api/v1/runs", {
+    const createResponse = await client.post<Run>("/api/v1/runs", {
       flowName: "retry-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for step to complete after retries
-    const steps = await testDb.waitForSql<{
-      status: string;
-      retry_count: number;
-      stdout: string;
-    }>(
-      "SELECT status, retry_count, stdout FROM step WHERE run_id = ?",
-      [runId],
+    const steps = await testDb.waitForQuery<
+      { runId: string },
+      { status: string; retry_count: number; stdout: string }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({
+            status: s.status,
+            retry_count: s.retry_count,
+            stdout: s.stdout,
+          })),
+      { runId },
       { timeout: 3000 },
     );
 
     expect(steps).to.have.lengthOf(1);
-    expect(steps[0].status).to.equal("completed");
-    expect(steps[0].retry_count).to.equal(2); // Failed 2 times, succeeded on 3rd
-    expect(steps[0].stdout).to.include("Success on attempt 3");
+    expect(steps[0]!.status).to.equal("completed");
+    expect(steps[0]!.retry_count).to.equal(2); // Failed 2 times, succeeded on 3rd
+    expect(steps[0]!.stdout).to.include("Success on attempt 3");
 
     // Verify run completed
-    await testDb.waitForSql("SELECT id FROM run WHERE id = ? AND status = ?", [
-      runId,
-      "completed",
-    ]);
+    await testDb.waitForQuery<
+      { runId: string; status: string },
+      { id: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId && r.status === p.status)
+          .select((r) => ({ id: r.id })),
+      { runId, status: "completed" },
+    );
   });
 });
