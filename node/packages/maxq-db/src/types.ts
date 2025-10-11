@@ -34,6 +34,8 @@ export type RunDbRow = {
   started_at: number | null;
   completed_at: number | null;
   duration_ms: number | null;
+  stdout: string | null;
+  stderr: string | null;
 };
 
 // Stage table row (exact database schema with snake_case)
@@ -65,6 +67,8 @@ export type StepDbRow = {
   started_at: number | null;
   completed_at: number | null;
   duration_ms: number | null;
+  stdout: string | null;
+  stderr: string | null;
 };
 
 // Artifact table row (exact database schema with snake_case)

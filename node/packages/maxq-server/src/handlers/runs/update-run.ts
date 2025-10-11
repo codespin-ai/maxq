@@ -7,6 +7,8 @@ import { updateRun } from "../../domain/run/update-run.js";
 const logger = createLogger("maxq:handlers:runs:update");
 
 // Validation schema
+// Note: stdout/stderr are NOT accepted from external clients
+// They are captured internally by MaxQ when spawning processes
 export const updateRunSchema = z.object({
   status: z.enum(["pending", "running", "completed", "failed"]).optional(),
   output: z.unknown().optional(),

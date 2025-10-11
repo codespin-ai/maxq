@@ -45,6 +45,14 @@ export async function updateRun(
       updates.push("completed_at = ${completedAt}");
       params.completedAt = input.completedAt;
     }
+    if (input.stdout !== undefined) {
+      updates.push("stdout = ${stdout}");
+      params.stdout = input.stdout;
+    }
+    if (input.stderr !== undefined) {
+      updates.push("stderr = ${stderr}");
+      params.stderr = input.stderr;
+    }
 
     // Calculate duration if both started and completed times are present
     if (input.startedAt && input.completedAt) {

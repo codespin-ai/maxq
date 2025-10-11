@@ -24,6 +24,8 @@ export function mapRunFromDb(row: RunDbRow): Run {
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
     durationMs: row.duration_ms ?? undefined,
+    stdout: row.stdout ?? undefined,
+    stderr: row.stderr ?? undefined,
   };
 }
 
@@ -41,6 +43,8 @@ export function mapRunToDb(run: Partial<Run>): Partial<RunDbRow> {
   if (run.startedAt !== undefined) dbRow.started_at = run.startedAt;
   if (run.completedAt !== undefined) dbRow.completed_at = run.completedAt;
   if (run.durationMs !== undefined) dbRow.duration_ms = run.durationMs;
+  if (run.stdout !== undefined) dbRow.stdout = run.stdout;
+  if (run.stderr !== undefined) dbRow.stderr = run.stderr;
 
   return dbRow;
 }
@@ -91,6 +95,8 @@ export function mapStepFromDb(row: StepDbRow): Step {
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
     durationMs: row.duration_ms ?? undefined,
+    stdout: row.stdout ?? undefined,
+    stderr: row.stderr ?? undefined,
   };
 }
 
@@ -113,6 +119,8 @@ export function mapStepToDb(step: Partial<Step>): Partial<StepDbRow> {
   if (step.startedAt !== undefined) dbRow.started_at = step.startedAt;
   if (step.completedAt !== undefined) dbRow.completed_at = step.completedAt;
   if (step.durationMs !== undefined) dbRow.duration_ms = step.durationMs;
+  if (step.stdout !== undefined) dbRow.stdout = step.stdout;
+  if (step.stderr !== undefined) dbRow.stderr = step.stderr;
 
   return dbRow;
 }
