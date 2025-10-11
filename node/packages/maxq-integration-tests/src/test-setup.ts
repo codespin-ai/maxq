@@ -4,6 +4,11 @@ import {
   TestHttpClient,
   testLogger,
 } from "@codespin/maxq-test-utils";
+import { use } from "chai";
+import chaiAsPromised from "chai-as-promised";
+
+// Setup chai-as-promised for async assertions
+use(chaiAsPromised);
 
 // Test configuration
 export const testDb = new TestDatabase({

@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "DAG-based workflow orchestration engine with filesystem flow discovery",
   "type": "module",
   "private": true,

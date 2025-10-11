@@ -24,6 +24,8 @@ export type Run = {
   startedAt?: number;
   completedAt?: number;
   durationMs?: number;
+  stdout?: string;
+  stderr?: string;
 };
 
 // Stage domain type (camelCase for API)
@@ -55,6 +57,8 @@ export type Step = {
   startedAt?: number;
   completedAt?: number;
   durationMs?: number;
+  stdout?: string;
+  stderr?: string;
 };
 
 // Artifact domain type (camelCase for API)
@@ -113,6 +117,8 @@ export type UpdateRunInput = {
   error?: unknown;
   startedAt?: number;
   completedAt?: number;
+  stdout?: string;
+  stderr?: string;
 };
 
 export type UpdateStageInput = {
@@ -127,6 +133,8 @@ export type UpdateStepInput = {
   retryCount?: number;
   startedAt?: number;
   completedAt?: number;
+  stdout?: string;
+  stderr?: string;
 };
 
 // Query parameters

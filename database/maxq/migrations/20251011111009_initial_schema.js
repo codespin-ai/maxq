@@ -21,6 +21,8 @@ export async function up(knex) {
     table.bigInteger("started_at");
     table.bigInteger("completed_at");
     table.bigInteger("duration_ms");
+    table.text("stdout"); // Captured stdout from flow.sh process
+    table.text("stderr"); // Captured stderr from flow.sh process
 
     // Indexes
     table.index("flow_name", "idx_run_flow_name");
@@ -77,6 +79,8 @@ export async function up(knex) {
     table.bigInteger("started_at");
     table.bigInteger("completed_at");
     table.bigInteger("duration_ms");
+    table.text("stdout"); // Captured stdout from step.sh process
+    table.text("stderr"); // Captured stderr from step.sh process
 
     // Indexes
     table.index("run_id", "idx_step_run_id");

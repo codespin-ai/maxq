@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq-db",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Database layer for MaxQ with PostgreSQL and SQLite support",
   "type": "module",
   "main": "./dist/index.js",

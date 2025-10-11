@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq-core",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Core types and utilities for MaxQ",
   "type": "module",
   "main": "./dist/index.js",

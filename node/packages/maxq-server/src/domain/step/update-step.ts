@@ -1,27 +1,26 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
-import { type RunDbRow } from "@codespin/maxq-db";
+import type { StepDbRow } from "@codespin/maxq-db";
 import type { DataContext } from "../data-context.js";
-import type { Run, UpdateRunInput } from "../../types.js";
-import { mapRunFromDb } from "../../mappers.js";
+import type { Step, UpdateStepInput } from "../../types.js";
+import { mapStepFromDb } from "../../mappers.js";
 
-const logger = createLogger("maxq:domain:run");
+const logger = createLogger("maxq:domain:step");
 
 /**
- * Update a run
+ * Update an existing step
  *
  * @param ctx - Data context containing database connection
- * @param id - Run ID
- * @param input - Update parameters
- * @returns Result containing the updated run or an error
+ * @param id - Step ID to update
+ * @param input - Step update parameters
+ * @returns Result containing the updated step or an error
  */
-export async function updateRun(
+export async function updateStep(
   ctx: DataContext,
   id: string,
-  input: UpdateRunInput,
-): Promise<Result<Run, Error>> {
+  input: UpdateStepInput,
+): Promise<Result<Step, Error>> {
   try {
-    // Build SET clause dynamically
     const updates: string[] = [];
     const params: Record<string, unknown> = { id };
 
@@ -36,6 +35,10 @@ export async function updateRun(
     if (input.error !== undefined) {
       updates.push("error = ${error}");
       params.error = input.error;
+    }
+    if (input.retryCount !== undefined) {
+      updates.push("retry_count = ${retryCount}");
+      params.retryCount = input.retryCount;
     }
     if (input.startedAt !== undefined) {
       updates.push("started_at = ${startedAt}");
@@ -54,28 +57,24 @@ export async function updateRun(
       params.stderr = input.stderr;
     }
 
-    // Calculate duration if both started and completed times are present
-    if (input.startedAt && input.completedAt) {
-      updates.push("duration_ms = ${durationMs}");
-      params.durationMs = input.completedAt - input.startedAt;
-    }
-
     if (updates.length === 0) {
       return failure(new Error("No fields to update"));
     }
 
-    const sql = `UPDATE run SET ${updates.join(", ")} WHERE id = \${id} RETURNING *`;
-    const row = await ctx.db.oneOrNone<RunDbRow>(sql, params);
+    const updateQuery = `
+      UPDATE step
+      SET ${updates.join(", ")}
+      WHERE id = \${id}
+      RETURNING *
+    `;
 
-    if (!row) {
-      return failure(new Error("Run not found"));
-    }
+    const row = await ctx.db.one<StepDbRow>(updateQuery, params);
 
-    logger.info("Updated run", { id, updates: Object.keys(input) });
+    logger.debug("Updated step", { id, updates: Object.keys(input) });
 
-    return success(mapRunFromDb(row));
+    return success(mapStepFromDb(row));
   } catch (error) {
-    logger.error("Failed to update run", { error, id, input });
+    logger.error("Failed to update step", { error, id, input });
     return failure(error as Error);
   }
 }
