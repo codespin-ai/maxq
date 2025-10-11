@@ -25,6 +25,25 @@ const logger = createLogger("maxq:executor:orchestrator");
 const schema = createSchema<DatabaseSchema>();
 
 /**
+ * Active orchestrator promises registry
+ * Used for testing to ensure all background jobs complete before cleanup
+ */
+const activeOrchestrators = new Set<Promise<void>>();
+
+/**
+ * Wait for all active orchestrators to complete
+ * Used in tests to prevent race conditions during cleanup
+ */
+export async function waitForAllOrchestrators(): Promise<void> {
+  if (activeOrchestrators.size > 0) {
+    logger.debug("Waiting for active orchestrators", {
+      count: activeOrchestrators.size,
+    });
+    await Promise.allSettled([...activeOrchestrators]);
+  }
+}
+
+/**
  * Context for orchestrator operations
  */
 export type OrchestratorContext = {
@@ -56,49 +75,64 @@ export async function startRun(
 
   logger.info("Starting run", { runId, flowName });
 
-  try {
-    // Update run status to running
-    await updateRunStatus(ctx.db, runId, "running");
+  // Create execution function
+  const executeRun = async () => {
+    try {
+      // Update run status to running
+      await updateRunStatus(ctx.db, runId, "running");
 
-    // Execute initial flow call
-    const flowResult = await executeFlowInitial({
-      runId,
-      flowName,
-      flowsRoot: ctx.config.flowsRoot,
-      apiUrl: ctx.apiUrl,
-      maxLogCapture: ctx.config.maxLogCapture,
-    });
-
-    // Store flow stdout/stderr
-    await updateRunOutput(
-      ctx.db,
-      runId,
-      flowResult.processResult.stdout,
-      flowResult.processResult.stderr,
-    );
-
-    if (flowResult.processResult.exitCode !== 0) {
-      logger.error("Flow execution failed", {
+      // Execute initial flow call
+      const flowResult = await executeFlowInitial({
         runId,
-        exitCode: flowResult.processResult.exitCode,
+        flowName,
+        flowsRoot: ctx.config.flowsRoot,
+        apiUrl: ctx.apiUrl,
+        maxLogCapture: ctx.config.maxLogCapture,
       });
-      await updateRunStatus(ctx.db, runId, "failed");
-      return;
-    }
 
-    if (!flowResult.response) {
-      logger.error("Flow returned no response", { runId });
-      await updateRunStatus(ctx.db, runId, "failed");
-      return;
-    }
+      // Store flow stdout/stderr
+      await updateRunOutput(
+        ctx.db,
+        runId,
+        flowResult.processResult.stdout,
+        flowResult.processResult.stderr,
+      );
 
-    // Start executing stages
-    await executeStages(ctx, runId, flowName, flowResult.response);
-  } catch (error) {
-    logger.error("Run failed with error", { runId, error });
-    await updateRunStatus(ctx.db, runId, "failed");
-    throw error;
-  }
+      if (flowResult.processResult.exitCode !== 0) {
+        logger.error("Flow execution failed", {
+          runId,
+          exitCode: flowResult.processResult.exitCode,
+        });
+        await updateRunStatus(ctx.db, runId, "failed");
+        return;
+      }
+
+      if (!flowResult.response) {
+        logger.error("Flow returned no response", { runId });
+        await updateRunStatus(ctx.db, runId, "failed");
+        return;
+      }
+
+      // Start executing stages
+      await executeStages(ctx, runId, flowName, flowResult.response);
+    } catch (error) {
+      logger.error("Run failed with error", { runId, error });
+      await updateRunStatus(ctx.db, runId, "failed");
+      throw error;
+    }
+  };
+
+  // Wrap in a promise that tracks itself
+  const executionPromise = executeRun().finally(() => {
+    // Always remove from active registry when done
+    activeOrchestrators.delete(executionPromise);
+  });
+
+  // Register this orchestrator as active
+  activeOrchestrators.add(executionPromise);
+
+  // Return the promise so caller can await if needed
+  return executionPromise;
 }
 
 /**

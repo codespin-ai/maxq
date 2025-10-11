@@ -23,6 +23,9 @@ export type {
 } from "./types.js";
 export type { RunStatus, StageStatus, StepStatus } from "@codespin/maxq-db";
 
+// Export testing utilities
+export { waitForAllOrchestrators } from "./executor/orchestrator.js";
+
 // Load environment variables
 config();
 

@@ -4,6 +4,7 @@ import {
   TestHttpClient,
   testLogger,
 } from "@codespin/maxq-test-utils";
+import { waitForAllOrchestrators } from "@codespin/maxq-server";
 import { use } from "chai";
 import chaiAsPromised from "chai-as-promised";
 import { mkdir, writeFile, chmod } from "fs/promises";
@@ -98,6 +99,11 @@ before(async function () {
 
 // Cleanup after each test
 afterEach(async function () {
+  // Wait for all background orchestrators to complete
+  // This prevents race conditions where truncate happens while orchestrator is still running
+  await waitForAllOrchestrators();
+
+  // Now it's safe to truncate tables
   await testDb.truncateAllTables();
 });
 
