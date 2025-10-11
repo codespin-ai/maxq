@@ -4,6 +4,7 @@ import { createLogger } from "@codespin/maxq-logger";
 import { createConnection } from "@codespin/maxq-db";
 import { createRunsRouter } from "./routes/runs.js";
 import type { DataContext } from "./domain/data-context.js";
+import type { ExecutorConfig } from "./executor/types.js";
 
 // Load environment variables
 config();
@@ -32,8 +33,35 @@ const databaseUrl =
   "postgresql://postgres:postgres@localhost:5432/maxq";
 const db = createConnection(databaseUrl);
 
+// Initialize executor config
+const executorConfig: ExecutorConfig = {
+  flowsRoot: process.env.MAXQ_FLOWS_ROOT || "/flows",
+  maxLogCapture: parseInt(process.env.MAXQ_MAX_LOG_CAPTURE || "8192", 10),
+  maxConcurrentSteps: parseInt(
+    process.env.MAXQ_MAX_CONCURRENT_STEPS || "10",
+    10,
+  ),
+};
+
+// Determine API URL for callbacks
+const apiUrl =
+  process.env.MAXQ_API_URL || `http://localhost:${port}/api/v1`;
+
+logger.info("Executor configuration", {
+  flowsRoot: executorConfig.flowsRoot,
+  maxLogCapture: executorConfig.maxLogCapture,
+  maxConcurrentSteps: executorConfig.maxConcurrentSteps,
+  apiUrl,
+});
+
 // Create data context
-const ctx: DataContext = { db };
+const ctx: DataContext = {
+  db,
+  executor: {
+    config: executorConfig,
+    apiUrl,
+  },
+};
 
 // Health check (no auth required)
 app.get("/health", async (_req, res) => {

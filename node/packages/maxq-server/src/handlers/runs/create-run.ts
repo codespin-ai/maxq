@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createLogger } from "@codespin/maxq-logger";
 import type { DataContext } from "../../domain/data-context.js";
 import { createRun } from "../../domain/run/create-run.js";
+import { startRun } from "../../executor/orchestrator.js";
 
 const logger = createLogger("maxq:handlers:runs:create");
 
@@ -32,7 +33,29 @@ export function createRunHandler(ctx: DataContext) {
         return;
       }
 
-      res.status(201).json(result.data);
+      const run = result.data;
+
+      // Start workflow execution asynchronously
+      // Don't wait for completion - workflow runs in background
+      startRun(
+        {
+          db: ctx.db,
+          config: ctx.executor.config,
+          apiUrl: ctx.executor.apiUrl,
+        },
+        {
+          runId: run.id,
+          flowName: run.flowName,
+        },
+      ).catch((error) => {
+        logger.error("Workflow execution failed", {
+          runId: run.id,
+          flowName: run.flowName,
+          error,
+        });
+      });
+
+      res.status(201).json(run);
     } catch (error) {
       if (error instanceof z.ZodError) {
         res

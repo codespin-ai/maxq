@@ -225,10 +225,16 @@ describe("Runs API", () => {
         flowName: "test-flow",
       });
 
+      // Wait for orchestrator to finish attempting execution
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       // Update one to running
       await client.patch(`/api/v1/runs/${run1Response.data.id}`, {
         status: "running",
       });
+
+      // Wait a bit for any async updates to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Filter by status
       const response = await client.get("/api/v1/runs?status=running");
