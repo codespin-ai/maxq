@@ -6,8 +6,8 @@
   "private": true,
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "mocha",
-    "test:grep": "mocha --grep",
+    "test": "LOG_LEVEL=error mocha",
+    "test:grep": "LOG_LEVEL=error mocha --grep",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix"
   },

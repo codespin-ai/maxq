@@ -6,6 +6,8 @@ import {
 } from "@codespin/maxq-test-utils";
 import { use } from "chai";
 import chaiAsPromised from "chai-as-promised";
+import { mkdir, writeFile, chmod } from "fs/promises";
+import { join } from "path";
 
 // Setup chai-as-promised for async assertions
 use(chaiAsPromised);
@@ -22,11 +24,68 @@ export const testServer = new TestServer({
 });
 export const client = new TestHttpClient(`http://localhost:5099`);
 
+/**
+ * Creates dummy flows for API tests
+ * These flows return minimal valid JSON to avoid "script not executable" errors
+ */
+async function createDummyFlows(): Promise<void> {
+  try {
+    // Compute flows root relative to compiled dist/ directory
+    // import.meta.url points to dist/test-setup.js
+    const currentDir = new URL(".", import.meta.url).pathname; // dist/
+    const packageDir = join(currentDir, ".."); // maxq-integration-tests/
+    const flowsRoot = join(packageDir, "../maxq-server/flows");
+
+    testLogger.info(`Creating dummy flows in: ${flowsRoot}`);
+
+    // Flow names used in runs.test.ts
+    const flowNames = [
+      "test-workflow",
+      "market-analysis",
+      "data-pipeline",
+      "test-flow",
+      "flow-1",
+      "flow-2",
+      "flow-3",
+      "workflow-a",
+      "workflow-b",
+    ];
+
+    // Minimal valid flow response (final stage with no steps)
+    const flowScript = `#!/bin/bash
+cat <<'EOF'
+{
+  "stage": "dummy",
+  "final": true,
+  "steps": []
+}
+EOF
+`;
+
+    for (const flowName of flowNames) {
+      const flowDir = join(flowsRoot, flowName);
+      await mkdir(flowDir, { recursive: true });
+
+      const flowPath = join(flowDir, "flow.sh");
+      await writeFile(flowPath, flowScript);
+      await chmod(flowPath, 0o755);
+    }
+
+    testLogger.info(`Created ${flowNames.length} dummy flows for API tests`);
+  } catch (error) {
+    testLogger.error("Failed to create dummy flows:", error);
+    throw error;
+  }
+}
+
 // Setup before all tests
 before(async function () {
   this.timeout(60000); // 60 seconds for setup
 
   testLogger.info("🚀 Starting MaxQ integration test setup...");
+
+  // Create dummy flows for API tests
+  await createDummyFlows();
 
   // Setup database
   await testDb.setup();
