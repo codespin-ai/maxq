@@ -1,0 +1,28 @@
+{
+  "name": "@codespin/maxq-test-utils",
+  "version": "0.0.2",
+  "description": "Testing utilities for MaxQ",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix"
+  },
+  "dependencies": {
+    "@codespin/maxq-core": "file:../maxq-core",
+    "@codespin/maxq-logger": "file:../maxq-logger",
+    "@codespin/maxq-db": "file:../maxq-db",
+    "@codespin/maxq-server": "file:../maxq-server",
+    "knex": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "typescript": "^5.7.3"
+  }
+}

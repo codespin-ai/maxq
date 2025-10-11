@@ -1,0 +1,47 @@
+import { Request, Response } from "express";
+import { z } from "zod";
+import { createLogger } from "@codespin/maxq-logger";
+import type { DataContext } from "../../domain/data-context.js";
+import { createRun } from "../../domain/run/create-run.js";
+
+const logger = createLogger("maxq:handlers:runs:create");
+
+// Validation schema
+export const createRunSchema = z.object({
+  flowName: z.string().min(1),
+  input: z.unknown().optional(),
+  metadata: z.unknown().optional(),
+});
+
+/**
+ * POST /api/v1/runs - Create a new run
+ */
+export function createRunHandler(ctx: DataContext) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const input = createRunSchema.parse(req.body);
+
+      const result = await createRun(ctx, {
+        flowName: input.flowName,
+        input: input.input,
+        metadata: input.metadata,
+      });
+
+      if (!result.success) {
+        res.status(400).json({ error: result.error.message });
+        return;
+      }
+
+      res.status(201).json(result.data);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res
+          .status(400)
+          .json({ error: "Invalid request", details: error.errors });
+        return;
+      }
+      logger.error("Failed to create run", { error });
+      res.status(500).json({ error: "Internal server error" });
+    }
+  };
+}

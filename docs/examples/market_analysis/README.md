@@ -45,6 +45,7 @@ market_analysis/
 ## Dependencies
 
 Each step requires:
+
 - `bash` (4.0+)
 - `curl` - For HTTP requests to MaxQ API
 - `jq` - For JSON processing
@@ -75,26 +76,31 @@ curl -X POST http://localhost:3000/api/v1/flows/market_analysis/runs \
 ### Stage 1: Data Fetch
 
 **fetch_news step:**
+
 - `articles` - Array of news articles with title, content, source
 - `metadata` - Fetch metadata (count, source, timestamp)
 
 **fetch_prices step:**
+
 - `prices` - Historical price data (open, close, high, low, volume)
 - `price_stats` - Basic statistics (avg, min, max)
 
 ### Stage 2: Analysis
 
 **analyze_sentiment step (4 instances, sequences 0-3):**
+
 - `sentiments` - Array of analyzed articles with sentiment scores
 - `summary` - Sentiment distribution summary per sequence
 
 **calculate_trends step:**
+
 - `trend_analysis` - Complete trend analysis (SMA, volatility, trend direction)
 - `recommendation` - Trading recommendation with confidence
 
 ### Stage 3: Reporting
 
 **generate_report step:**
+
 - `report` - Complete JSON report combining all analyses
 - `summary` - Human-readable text summary
 

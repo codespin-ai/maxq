@@ -54,6 +54,7 @@ MaxQ is a lightweight DAG-based workflow orchestration engine designed for shell
 A **flow** is a workflow definition represented as a shell script (`flow.sh`) in the filesystem.
 
 **Characteristics:**
+
 - Defined as an executable shell script
 - Discovered from filesystem (not registered via API)
 - Orchestrates workflow by scheduling stages
@@ -61,6 +62,7 @@ A **flow** is a workflow definition represented as a shell script (`flow.sh`) in
 - Stateless - all state stored in MaxQ database
 
 **Example:**
+
 ```
 FLOWS_ROOT/market_analysis/flow.sh
 ```
@@ -70,6 +72,7 @@ FLOWS_ROOT/market_analysis/flow.sh
 A **run** is a single execution instance of a flow.
 
 **Characteristics:**
+
 - Created when a flow is triggered
 - Has a unique ID (UUID)
 - Tracks overall workflow status: `pending`, `running`, `completed`, `failed`
@@ -77,6 +80,7 @@ A **run** is a single execution instance of a flow.
 - Contains metadata and execution history
 
 **Lifecycle:**
+
 1. Created in `pending` state
 2. Transitions to `running` when flow.sh is first called
 3. Ends in `completed` or `failed` state
@@ -86,6 +90,7 @@ A **run** is a single execution instance of a flow.
 A **stage** is a named batch of steps scheduled together by the flow.
 
 **Characteristics:**
+
 - Named by the flow (e.g., "data-fetch", "analysis", "reporting")
 - Contains one or more steps
 - Can be marked as `final` to indicate workflow completion
@@ -93,6 +98,7 @@ A **stage** is a named batch of steps scheduled together by the flow.
 - All steps in a stage must complete before flow is called back
 
 **Purpose:**
+
 - Groups related steps together
 - Provides natural checkpoints in workflow execution
 - Simplifies flow logic (flow reasons about stages, not individual steps)
@@ -102,6 +108,7 @@ A **stage** is a named batch of steps scheduled together by the flow.
 A **step** is an individual unit of work within a stage.
 
 **Characteristics:**
+
 - Defined as a shell script in `FLOWS_ROOT/{flow}/steps/{step_name}/step.sh`
 - Has dependencies on other steps (DAG)
 - Can have multiple instances (for parallel execution)
@@ -110,6 +117,7 @@ A **step** is an individual unit of work within a stage.
 - Produces artifacts for downstream consumption
 
 **Status Values:**
+
 - `pending`: Created but not yet executing
 - `running`: Currently executing
 - `completed`: Finished successfully
@@ -121,12 +129,14 @@ A **step** is an individual unit of work within a stage.
 A **sequence** number identifies parallel instances of the same step.
 
 **Characteristics:**
+
 - Integer starting from 0
 - Assigned automatically by MaxQ when `instances > 1`
 - Unique within a step name and run
 - Used to namespace artifacts
 
 **Example:**
+
 ```
 instances: 4
 → Creates steps with sequences: 0, 1, 2, 3
@@ -137,6 +147,7 @@ instances: 4
 An **artifact** is data produced by a step and stored in MaxQ for downstream consumption.
 
 **Characteristics:**
+
 - Namespaced by step name and sequence: `step_name[sequence]/artifact_name`
 - Stored as JSON in the database
 - Queryable by downstream steps
@@ -144,6 +155,7 @@ An **artifact** is data produced by a step and stored in MaxQ for downstream con
 - Supports tags for categorization
 
 **Example:**
+
 ```
 Step: process_page (sequence 0)
 Artifact name: "page_data"
@@ -227,12 +239,14 @@ FLOWS_ROOT/
 ### 4.2 Discovery Rules
 
 **Flow Discovery:**
+
 - Each subdirectory under `FLOWS_ROOT` is a potential flow
 - A directory is a valid flow if it contains `flow.sh`
 - Flow name = directory name (e.g., `market_analysis`)
 - `flow.sh` must be executable
 
 **Step Discovery:**
+
 - Steps are discovered under `{flow}/steps/` subdirectories
 - Each subdirectory under `steps/` must contain `step.sh`
 - Step name = subdirectory name (e.g., `fetch_news`)
@@ -240,6 +254,7 @@ FLOWS_ROOT/
 
 **Validation on Startup:**
 MaxQ validates on startup:
+
 1. `FLOWS_ROOT` exists and is readable
 2. Each flow has a valid `flow.sh`
 3. Each step referenced in a stage exists
@@ -248,6 +263,7 @@ MaxQ validates on startup:
 ### 4.3 Step Resolution
 
 When a flow schedules a step with name `fetch_news`, MaxQ resolves it to:
+
 ```
 {FLOWS_ROOT}/{flowName}/steps/fetch_news/step.sh
 ```
@@ -257,6 +273,7 @@ When a flow schedules a step with name `fetch_news`, MaxQ resolves it to:
 ### 4.4 Hot Reload (Optional)
 
 Implementations MAY support filesystem watching to detect:
+
 - New flows added
 - Flows removed
 - Step scripts updated
@@ -310,42 +327,53 @@ Configure via: `MAXQ_WATCH_FLOWS=true`
 ### 5.2 Stage Completion
 
 A stage is considered complete when:
+
 - ALL steps in the stage have status `completed`
 - OR any step has status `failed` (stage fails)
 
 When a stage completes:
+
 - If `final: false`: MaxQ calls flow.sh with completed stage name
 - If `final: true`: MaxQ marks run as completed, no callback
 
 ### 5.3 Step Execution
 
 **Dependency Resolution:**
+
 - MaxQ builds a DAG from `dependsOn` relationships
 - Steps without dependencies start immediately
 - Dependent steps wait for all dependencies to complete
 
 **Parallel Execution:**
+
 - Steps with no dependencies execute in parallel
 - Steps with `instances > 1` execute in parallel (all sequences)
 
 **Example:**
+
 ```json
 {
   "steps": [
     { "name": "fetch_news", "dependsOn": [], "instances": 1 },
     { "name": "fetch_prices", "dependsOn": [], "instances": 1 },
-    { "name": "analyze", "dependsOn": ["fetch_news", "fetch_prices"], "instances": 4 }
+    {
+      "name": "analyze",
+      "dependsOn": ["fetch_news", "fetch_prices"],
+      "instances": 4
+    }
   ]
 }
 ```
 
 Execution order:
+
 1. `fetch_news` and `fetch_prices` start in parallel
 2. When both complete, `analyze[0]`, `analyze[1]`, `analyze[2]`, `analyze[3]` start in parallel
 
 ### 5.4 Process Spawning
 
 MaxQ spawns shell processes with:
+
 - Working directory: `{FLOWS_ROOT}/{flowName}` for flows
 - Working directory: `{FLOWS_ROOT}/{flowName}/steps/{stepName}` for steps
 - Environment variables (see section 7)
@@ -356,10 +384,12 @@ MaxQ spawns shell processes with:
 ### 5.5 Exit Codes
 
 **Flow exit codes:**
+
 - `0`: Success (stage scheduled or workflow logic completed)
 - `Non-zero`: Failure (MaxQ marks run as failed)
 
 **Step exit codes:**
+
 - `0`: Success (step completed)
 - `Non-zero`: Failure (step failed, may retry)
 
@@ -396,13 +426,19 @@ GET /flows
 Lists all discovered flows from the filesystem.
 
 **Response:**
+
 ```json
 {
   "flows": [
     {
       "name": "market_analysis",
       "path": "/flows/market_analysis",
-      "steps": ["fetch_news", "fetch_prices", "analyze_sentiment", "generate_report"]
+      "steps": [
+        "fetch_news",
+        "fetch_prices",
+        "analyze_sentiment",
+        "generate_report"
+      ]
     },
     {
       "name": "data_pipeline",
@@ -424,6 +460,7 @@ POST /flows/{flowName}/runs
 Creates a new run for the specified flow.
 
 **Request Body:**
+
 ```json
 {
   "input": {
@@ -437,6 +474,7 @@ Creates a new run for the specified flow.
 ```
 
 **Response:** `201 Created`
+
 ```json
 {
   "id": "run-uuid-123",
@@ -461,6 +499,7 @@ GET /runs/{runId}
 Retrieves details about a specific run.
 
 **Response:**
+
 ```json
 {
   "id": "run-uuid-123",
@@ -503,6 +542,7 @@ GET /runs?flowName={flowName}&status={status}&limit={limit}&offset={offset}
 Lists runs with optional filtering.
 
 **Query Parameters:**
+
 - `flowName` (optional): Filter by flow name
 - `status` (optional): Filter by status (`pending`, `running`, `completed`, `failed`)
 - `limit` (optional): Max results (default: 20, max: 100)
@@ -511,6 +551,7 @@ Lists runs with optional filtering.
 - `sortOrder` (optional): `asc` or `desc` (default: `desc`)
 
 **Response:**
+
 ```json
 {
   "runs": [
@@ -541,6 +582,7 @@ POST /runs/{runId}/steps
 Called by flow.sh to schedule a stage with steps. This is the core API flows use to orchestrate work.
 
 **Request Body:**
+
 ```json
 {
   "stage": "data-fetch",
@@ -570,6 +612,7 @@ Called by flow.sh to schedule a stage with steps. This is the core API flows use
 ```
 
 **Field Descriptions:**
+
 - `stage` (required, string): Name of this stage
 - `final` (required, boolean): If true, no callback after this stage completes
 - `steps` (required, array): Array of step definitions
@@ -580,6 +623,7 @@ Called by flow.sh to schedule a stage with steps. This is the core API flows use
   - `env` (optional, object): Environment variables passed to step.sh
 
 **Response:** `201 Created`
+
 ```json
 {
   "stage": "data-fetch",
@@ -612,6 +656,7 @@ GET /steps/{stepId}
 Retrieves details about a specific step.
 
 **Response:**
+
 ```json
 {
   "id": "step-uuid-1",
@@ -648,6 +693,7 @@ GET /runs/{runId}/steps?stage={stage}&status={status}&name={name}
 Lists steps for a run with optional filtering.
 
 **Query Parameters:**
+
 - `stage` (optional): Filter by stage name
 - `status` (optional): Filter by status
 - `name` (optional): Filter by step name
@@ -658,6 +704,7 @@ Lists steps for a run with optional filtering.
 - `sortOrder` (optional): `asc` or `desc` (default: `asc`)
 
 **Response:**
+
 ```json
 {
   "steps": [
@@ -690,6 +737,7 @@ PATCH /steps/{stepId}
 Called by MaxQ executor to update step status. May also be called by steps themselves to report progress.
 
 **Request Body:**
+
 ```json
 {
   "status": "completed",
@@ -702,6 +750,7 @@ Called by MaxQ executor to update step status. May also be called by steps thems
 ```
 
 **Response:**
+
 ```json
 {
   "id": "step-uuid-1",
@@ -722,6 +771,7 @@ POST /runs/{runId}/artifacts
 Called by steps to store artifacts for downstream consumption.
 
 **Request Body:**
+
 ```json
 {
   "stepId": "step-uuid-1",
@@ -729,9 +779,7 @@ Called by steps to store artifacts for downstream consumption.
   "sequence": 0,
   "name": "raw_data",
   "value": {
-    "articles": [
-      { "title": "Market Report", "content": "..." }
-    ]
+    "articles": [{ "title": "Market Report", "content": "..." }]
   },
   "tags": ["news", "reuters"],
   "metadata": {
@@ -742,6 +790,7 @@ Called by steps to store artifacts for downstream consumption.
 ```
 
 **Field Descriptions:**
+
 - `stepId` (required, string): ID of the step creating this artifact
 - `stepName` (required, string): Name of the step
 - `sequence` (required, number): Sequence number of the step instance
@@ -751,6 +800,7 @@ Called by steps to store artifacts for downstream consumption.
 - `metadata` (optional, object): Additional metadata
 
 **Response:** `201 Created`
+
 ```json
 {
   "id": "artifact-uuid-1",
@@ -777,6 +827,7 @@ GET /runs/{runId}/artifacts
 Query artifacts with flexible filtering.
 
 **Query Parameters:**
+
 - `stepName` (optional): Filter by step name
 - `sequence` (optional): Filter by sequence number
 - `name` (optional): Filter by artifact name (exact match)
@@ -788,6 +839,7 @@ Query artifacts with flexible filtering.
 - `sortOrder` (optional): `asc` or `desc` (default: `desc`)
 
 **Response:**
+
 ```json
 {
   "artifacts": [
@@ -822,6 +874,7 @@ Query artifacts with flexible filtering.
 ```
 
 **Example Queries:**
+
 ```bash
 # Get all artifacts from fetch_news step
 GET /runs/{runId}/artifacts?stepName=fetch_news
@@ -847,6 +900,7 @@ GET /runs/{runId}/artifacts/{artifactId}
 Retrieves a specific artifact by ID.
 
 **Response:**
+
 ```json
 {
   "id": "artifact-uuid-1",
@@ -879,6 +933,7 @@ All errors follow this format:
 ```
 
 **HTTP Status Codes:**
+
 - `400 Bad Request`: Invalid input
 - `404 Not Found`: Resource not found
 - `409 Conflict`: State conflict (e.g., stage already scheduled)
@@ -921,6 +976,7 @@ MAXQ_FAILED_STAGE=analysis            # Name of failed stage (if any)
 ```
 
 **First Call:**
+
 ```bash
 MAXQ_RUN_ID=run-uuid-123
 MAXQ_FLOW_NAME=market_analysis
@@ -929,6 +985,7 @@ MAXQ_COMPLETED_STAGE=""               # Empty - no stages completed yet
 ```
 
 **Subsequent Calls:**
+
 ```bash
 MAXQ_RUN_ID=run-uuid-123
 MAXQ_FLOW_NAME=market_analysis
@@ -956,6 +1013,7 @@ API_KEY=secret123                     # from "env" field in stage scheduling
 ```
 
 **Example for parallel instance:**
+
 ```bash
 # Instance 0
 MAXQ_STEP_SEQUENCE=0
@@ -1103,6 +1161,7 @@ CREATE INDEX idx_log_created_at ON log(created_at DESC);
 ### 9.1 Simple Sequential Workflow
 
 **Directory Structure:**
+
 ```
 FLOWS_ROOT/
 └── hello_world/
@@ -1115,6 +1174,7 @@ FLOWS_ROOT/
 ```
 
 **flow.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1160,6 +1220,7 @@ fi
 ```
 
 **steps/greet/step.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1179,6 +1240,7 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 ```
 
 **steps/goodbye/step.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1196,6 +1258,7 @@ echo "Goodbye!"
 ### 9.2 Parallel Processing Workflow
 
 **Directory Structure:**
+
 ```
 FLOWS_ROOT/
 └── web_scraper/
@@ -1210,6 +1273,7 @@ FLOWS_ROOT/
 ```
 
 **flow.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1265,6 +1329,7 @@ fi
 ```
 
 **steps/fetch_urls/step.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1285,6 +1350,7 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 ```
 
 **steps/scrape_page/step.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1313,6 +1379,7 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 ```
 
 **steps/aggregate/step.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1341,6 +1408,7 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 ### 9.3 Complex DAG Workflow
 
 **Directory Structure:**
+
 ```
 FLOWS_ROOT/
 └── market_analysis/
@@ -1359,6 +1427,7 @@ FLOWS_ROOT/
 ```
 
 **flow.sh:**
+
 ```bash
 #!/bin/bash
 set -e
@@ -1469,6 +1538,7 @@ When any step in a stage fails (after all retries):
    - `MAXQ_FAILED_STAGE`: Name of the failed stage
 
 **Flow can decide to:**
+
 - Exit with non-zero (fail the run)
 - Schedule a recovery stage
 - Schedule an alert stage
@@ -1491,6 +1561,7 @@ MAXQ_STEP_TIMEOUT=300  # Seconds
 ```
 
 If a step exceeds timeout:
+
 - Treat as failure
 - Apply retry logic
 
@@ -1509,6 +1580,7 @@ If a step depends on a failed step:
 ### 11.1 Metaflow
 
 **Similarities:**
+
 - Flow → Run → Step → Artifact model
 - DAG-based execution
 - Parallel execution support
@@ -1516,15 +1588,15 @@ If a step depends on a failed step:
 
 **Differences:**
 
-| Feature | MaxQ | Metaflow |
-|---------|------|----------|
-| Language | Shell scripts | Python decorators |
-| Orchestration | Callback pattern | Linear code execution |
-| Step execution | Separate processes via HTTP | Python functions |
-| Flow definition | Filesystem-based | Code-based with decorators |
-| Dependencies | PostgreSQL only | Requires cloud services or local setup |
-| Parallel execution | `instances` parameter | `foreach` construct |
-| Stage concept | First-class (with `final` flag) | Not present |
+| Feature            | MaxQ                            | Metaflow                               |
+| ------------------ | ------------------------------- | -------------------------------------- |
+| Language           | Shell scripts                   | Python decorators                      |
+| Orchestration      | Callback pattern                | Linear code execution                  |
+| Step execution     | Separate processes via HTTP     | Python functions                       |
+| Flow definition    | Filesystem-based                | Code-based with decorators             |
+| Dependencies       | PostgreSQL only                 | Requires cloud services or local setup |
+| Parallel execution | `instances` parameter           | `foreach` construct                    |
+| Stage concept      | First-class (with `final` flag) | Not present                            |
 
 **Example comparison:**
 
@@ -1551,67 +1623,71 @@ def process(self):
 ### 11.2 Prefect
 
 **Similarities:**
+
 - Task dependencies
 - API-driven execution
 - Retry logic
 
 **Differences:**
 
-| Feature | MaxQ | Prefect |
-|---------|------|----------|
-| Language | Shell scripts | Python |
-| Architecture | Simple server + PostgreSQL | Agent-based + Cloud |
-| Flow definition | Filesystem discovery | Python decorators |
-| State management | PostgreSQL | Prefect Cloud or server |
-| Complexity | Minimal | Moderate to high |
+| Feature          | MaxQ                       | Prefect                 |
+| ---------------- | -------------------------- | ----------------------- |
+| Language         | Shell scripts              | Python                  |
+| Architecture     | Simple server + PostgreSQL | Agent-based + Cloud     |
+| Flow definition  | Filesystem discovery       | Python decorators       |
+| State management | PostgreSQL                 | Prefect Cloud or server |
+| Complexity       | Minimal                    | Moderate to high        |
 
 ### 11.3 Argo Workflows
 
 **Similarities:**
+
 - DAG execution
 - Container/process-based steps
 - HTTP API
 
 **Differences:**
 
-| Feature | MaxQ | Argo Workflows |
-|---------|------|----------|
-| Platform | Any (just needs PostgreSQL) | Kubernetes only |
-| Definition | Shell scripts | YAML manifests |
-| Execution | Native processes | Kubernetes pods |
-| Stage concept | Built-in | Must be modeled manually |
+| Feature       | MaxQ                        | Argo Workflows           |
+| ------------- | --------------------------- | ------------------------ |
+| Platform      | Any (just needs PostgreSQL) | Kubernetes only          |
+| Definition    | Shell scripts               | YAML manifests           |
+| Execution     | Native processes            | Kubernetes pods          |
+| Stage concept | Built-in                    | Must be modeled manually |
 
 ### 11.4 Apache Airflow
 
 **Similarities:**
+
 - DAG-based workflows
 - Task dependencies
 - Retry logic
 
 **Differences:**
 
-| Feature | MaxQ | Airflow |
-|---------|------|----------|
-| Scheduling | On-demand (via API) | Cron-based |
-| Definition | Shell scripts | Python DAGs |
-| Complexity | Minimal | High |
-| Infrastructure | PostgreSQL only | Redis, Celery, Scheduler, Webserver |
-| Stage callbacks | Built-in | Not present |
+| Feature         | MaxQ                | Airflow                             |
+| --------------- | ------------------- | ----------------------------------- |
+| Scheduling      | On-demand (via API) | Cron-based                          |
+| Definition      | Shell scripts       | Python DAGs                         |
+| Complexity      | Minimal             | High                                |
+| Infrastructure  | PostgreSQL only     | Redis, Celery, Scheduler, Webserver |
+| Stage callbacks | Built-in            | Not present                         |
 
 ### 11.5 Temporal
 
 **Similarities:**
+
 - Durable execution
 - Retry handling
 
 **Differences:**
 
-| Feature | MaxQ | Temporal |
-|---------|------|----------|
-| Model | DAG (declarative) | Imperative workflows |
-| Definition | Shell scripts + HTTP | Go/Java/Python code |
-| Architecture | Simple server | Workers + event sourcing |
-| Complexity | Minimal | High |
+| Feature      | MaxQ                 | Temporal                 |
+| ------------ | -------------------- | ------------------------ |
+| Model        | DAG (declarative)    | Imperative workflows     |
+| Definition   | Shell scripts + HTTP | Go/Java/Python code      |
+| Architecture | Simple server        | Workers + event sourcing |
+| Complexity   | Minimal              | High                     |
 
 ---
 
@@ -1788,9 +1864,9 @@ Official client libraries:
 
 ## Document History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2025-10-11 | Initial specification |
+| Version | Date       | Changes               |
+| ------- | ---------- | --------------------- |
+| 1.0.0   | 2025-10-11 | Initial specification |
 
 ---
 
