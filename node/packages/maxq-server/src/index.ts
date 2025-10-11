@@ -44,8 +44,7 @@ const executorConfig: ExecutorConfig = {
 };
 
 // Determine API URL for callbacks
-const apiUrl =
-  process.env.MAXQ_API_URL || `http://localhost:${port}/api/v1`;
+const apiUrl = process.env.MAXQ_API_URL || `http://localhost:${port}/api/v1`;
 
 logger.info("Executor configuration", {
   flowsRoot: executorConfig.flowsRoot,

@@ -238,7 +238,11 @@ async function executeStages(
 
       currentResponse = flowResult.response;
     } catch (error) {
-      logger.error("Stage execution failed", { runId, stage: stageName, error });
+      logger.error("Stage execution failed", {
+        runId,
+        stage: stageName,
+        error,
+      });
 
       // Mark stage as failed
       const failedStageId = await ctx.db.oneOrNone<{ id: string }>(

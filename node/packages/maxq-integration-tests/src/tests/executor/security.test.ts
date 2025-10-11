@@ -106,9 +106,9 @@ describe("Executor Security Utilities", () => {
     });
 
     it("should reject invalid environment variable names", () => {
-      expect(() =>
-        sanitizeEnv({ "invalid-name": "value" }),
-      ).to.throw(/Invalid environment variable name/);
+      expect(() => sanitizeEnv({ "invalid-name": "value" })).to.throw(
+        /Invalid environment variable name/,
+      );
       expect(() => sanitizeEnv({ "123ABC": "value" })).to.throw(
         /Invalid environment variable name/,
       );
