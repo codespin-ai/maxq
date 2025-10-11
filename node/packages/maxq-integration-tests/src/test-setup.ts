@@ -18,10 +18,24 @@ export const testDb = new TestDatabase({
   dbName: "maxq_test",
   logger: testLogger,
 });
+
+// Compute flows root for server - must match where we create dummy flows
+// import.meta.url points to src/test-setup.ts when running with ts-node
+// Go up to packages/maxq-integration-tests, then to maxq-server
+const currentFile = new URL(import.meta.url).pathname;
+const srcDir = join(currentFile, ".."); // src/
+const packageRoot = join(srcDir, ".."); // maxq-integration-tests/
+const packagesDir = join(packageRoot, ".."); // packages/
+const flowsRoot = join(packagesDir, "maxq-server/flows");
+
+console.log(`[TEST-SETUP] Computed flows root: ${flowsRoot}`);
+console.log(`[TEST-SETUP] Creating TestServer with port 5099 and flowsRoot: ${flowsRoot}`);
+
 export const testServer = new TestServer({
   port: 5099,
   dbName: "maxq_test",
   logger: testLogger,
+  flowsRoot, // Explicitly set flows root
 });
 export const client = new TestHttpClient(`http://localhost:5099`);
 
@@ -31,12 +45,6 @@ export const client = new TestHttpClient(`http://localhost:5099`);
  */
 async function createDummyFlows(): Promise<void> {
   try {
-    // Compute flows root relative to compiled dist/ directory
-    // import.meta.url points to dist/test-setup.js
-    const currentDir = new URL(".", import.meta.url).pathname; // dist/
-    const packageDir = join(currentDir, ".."); // maxq-integration-tests/
-    const flowsRoot = join(packageDir, "../maxq-server/flows");
-
     testLogger.info(`Creating dummy flows in: ${flowsRoot}`);
 
     // Flow names used in runs.test.ts

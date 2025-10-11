@@ -40,6 +40,17 @@ export async function createRun(
 
     logger.info("Created run", { id, flowName: input.flowName });
 
+    // Debug: Verify run exists immediately after creation
+    const verification = await ctx.db.oneOrNone<{ id: string }>(
+      "SELECT id FROM run WHERE id = ${id}",
+      { id },
+    );
+    logger.info("Run verification after INSERT", {
+      id,
+      exists: !!verification,
+      verificationId: verification?.id,
+    });
+
     return success(mapRunFromDb(row));
   } catch (error) {
     logger.error("Failed to create run", { error, input });

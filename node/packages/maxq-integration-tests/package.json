@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test": "LOG_LEVEL=error mocha",
-    "test:grep": "LOG_LEVEL=error mocha --grep",
+    "test:grep": "mocha --grep",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix"
   },

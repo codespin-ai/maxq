@@ -165,6 +165,17 @@ async function executeStages(
       const stageId = uuidv4();
       const now = Date.now();
 
+      // Debug: Check if run exists before inserting stage
+      const runExists = await ctx.db.oneOrNone<{ id: string }>(
+        "SELECT id FROM run WHERE id = ${runId}",
+        { runId },
+      );
+      logger.info("Pre-stage INSERT run check", {
+        runId,
+        exists: !!runExists,
+        stageName,
+      });
+
       await ctx.db.none(
         `
         INSERT INTO stage (id, run_id, name, final, status, created_at)
