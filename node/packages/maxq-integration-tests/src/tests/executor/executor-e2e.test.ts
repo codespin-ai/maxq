@@ -65,7 +65,7 @@ EOF
       expect(result.response!.stage).to.equal("data-fetch");
       expect(result.response!.final).to.be.false;
       expect(result.response!.steps).to.have.lengthOf(1);
-      expect(result.response!.steps[0].name).to.equal("fetch-data");
+      expect(result.response!.steps[0]!.name).to.equal("fetch-data");
     });
 
     it("should pass environment variables to flow", async () => {
@@ -442,8 +442,8 @@ exit 1
           },
         );
         expect.fail("Should have thrown error");
-      } catch (error: any) {
-        expect(error.message).to.include("Stage failed");
+      } catch (error) {
+        expect((error as Error).message).to.include("Stage failed");
       }
     });
 
@@ -532,14 +532,14 @@ exit 0
       );
 
       expect(results).to.have.lengthOf(1);
-      const result = results[0];
+      const result = results[0]!;
 
       // Should eventually succeed
-      expect(result.processResult.exitCode).to.equal(0);
-      expect(result.processResult.stdout).to.include("Success on attempt 3");
+      expect(result!.processResult.exitCode).to.equal(0);
+      expect(result!.processResult.stdout).to.include("Success on attempt 3");
 
       // Should have retried twice (retryCount = 2)
-      expect(result.retryCount).to.equal(2);
+      expect(result!.retryCount).to.equal(2);
     });
 
     it("should fail after exhausting retries", async () => {
@@ -577,8 +577,8 @@ exit 1
           },
         );
         expect.fail("Should have thrown error");
-      } catch (error: any) {
-        expect(error.message).to.include("Stage failed");
+      } catch (error) {
+        expect((error as Error).message).to.include("Stage failed");
       }
     });
   });

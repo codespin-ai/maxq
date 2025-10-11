@@ -247,7 +247,7 @@ echo "Relative path test"
           scriptPath,
           {
             "invalid-name": "value",
-          } as any,
+          } as Record<string, string>,
           tempDir,
         ),
       ).to.be.rejectedWith(/Invalid environment variable name/);

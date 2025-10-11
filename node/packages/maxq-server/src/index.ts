@@ -6,6 +6,23 @@ import { createRunsRouter } from "./routes/runs.js";
 import type { DataContext } from "./domain/data-context.js";
 import type { ExecutorConfig } from "./executor/types.js";
 
+// Export types for use in tests and clients
+export type {
+  Run,
+  Stage,
+  Step,
+  Artifact,
+  CreateRunInput,
+  UpdateRunInput,
+  UpdateStageInput,
+  UpdateStepInput,
+  PaginatedResult,
+  ListRunsParams,
+  ListStepsParams,
+  QueryArtifactsParams,
+} from "./types.js";
+export type { RunStatus, StageStatus, StepStatus } from "@codespin/maxq-db";
+
 // Load environment variables
 config();
 

@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "tsc --noEmit",
     "test": "mocha",
     "test:grep": "mocha --grep",
     "lint": "eslint src --ext .ts",
