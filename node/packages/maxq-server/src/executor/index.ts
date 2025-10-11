@@ -3,11 +3,7 @@
  * Orchestrates flow and step execution with DAG resolution and retry logic
  */
 
-export type {
-  ExecutorConfig,
-  ProcessResult,
-  FlowDiscovery,
-} from "./types.js";
+export type { ExecutorConfig, ProcessResult, FlowDiscovery } from "./types.js";
 
 export type {
   FlowResponse,
@@ -21,10 +17,7 @@ export type {
   StepExecutionResult,
 } from "./step-executor.js";
 
-export type {
-  OrchestratorContext,
-  StartRunInput,
-} from "./orchestrator.js";
+export type { OrchestratorContext, StartRunInput } from "./orchestrator.js";
 
 export {
   executeFlow,
@@ -37,11 +30,7 @@ export { executeStep, executeStepsDAG, resolveDAG } from "./step-executor.js";
 
 export { startRun } from "./orchestrator.js";
 
-export {
-  discoverFlows,
-  getFlow,
-  resolveStepPath,
-} from "./flow-discovery.js";
+export { discoverFlows, getFlow, resolveStepPath } from "./flow-discovery.js";
 
 export { spawnProcess } from "./process-spawn.js";
 

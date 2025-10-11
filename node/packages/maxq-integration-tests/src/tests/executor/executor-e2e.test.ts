@@ -168,7 +168,9 @@ EOF
       });
 
       expect(result.processResult.exitCode).to.equal(0);
-      expect(result.processResult.stdout).to.include("FAILED_STAGE=failed-stage");
+      expect(result.processResult.stdout).to.include(
+        "FAILED_STAGE=failed-stage",
+      );
     });
 
     it("should handle flow that exits with error", async () => {

@@ -152,9 +152,7 @@ export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
 
     for (const dep of deps) {
       if (!stepMap.has(dep)) {
-        throw new Error(
-          `Step "${step.name}" depends on unknown step "${dep}"`,
-        );
+        throw new Error(`Step "${step.name}" depends on unknown step "${dep}"`);
       }
       adjList.get(dep)!.push(step.name);
     }

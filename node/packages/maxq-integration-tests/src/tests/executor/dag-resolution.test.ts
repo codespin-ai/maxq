@@ -262,7 +262,10 @@ describe("Executor DAG Resolution", () => {
         { name: "parallel-3", dependsOn: ["init"] },
         { name: "sequential-1", dependsOn: ["parallel-1"] },
         { name: "sequential-2", dependsOn: ["sequential-1"] },
-        { name: "final", dependsOn: ["parallel-2", "parallel-3", "sequential-2"] },
+        {
+          name: "final",
+          dependsOn: ["parallel-2", "parallel-3", "sequential-2"],
+        },
       ];
 
       const levels = resolveDAG(steps);
@@ -292,7 +295,10 @@ describe("Executor DAG Resolution", () => {
         { name: "worker-2", dependsOn: ["source"] },
         { name: "worker-3", dependsOn: ["source"] },
         { name: "worker-4", dependsOn: ["source"] },
-        { name: "sink", dependsOn: ["worker-1", "worker-2", "worker-3", "worker-4"] },
+        {
+          name: "sink",
+          dependsOn: ["worker-1", "worker-2", "worker-3", "worker-4"],
+        },
       ];
 
       const levels = resolveDAG(steps);

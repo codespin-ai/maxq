@@ -249,9 +249,10 @@ npm run test:client:grep -- "fetch flow"      # Only client tests
 **CRITICAL GIT SAFETY RULES**:
 
 1. **NEVER use `git push --force` or `git push -f`** - Force pushing destroys history
-2. **ALL git push commands require EXPLICIT user authorization**
-3. **Use revert commits instead of force push** - To undo changes, create revert commits
-4. **If you need to overwrite remote**, explain consequences and get explicit confirmation
+2. **NEVER use `git reset --hard`** - This permanently destroys local changes and commits
+3. **ALL git push commands require EXPLICIT user authorization**
+4. **Use revert commits instead of force push or reset** - To undo changes, create revert commits
+5. **If you need to overwrite remote**, explain consequences and get explicit confirmation
 
 **IMPORTANT**: NEVER commit or push changes without explicit user instruction
 
