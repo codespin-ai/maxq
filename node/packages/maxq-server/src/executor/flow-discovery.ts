@@ -3,12 +3,32 @@
  * Discovers flows from FLOWS_ROOT directory structure
  */
 
-import { readdir, access, constants } from "fs/promises";
+import { readdir, access, constants, readFile } from "fs/promises";
 import { join } from "path";
+import { parse as parseYaml } from "yaml";
 import { createLogger } from "@codespin/maxq-logger";
 import type { FlowDiscovery } from "./types.js";
 
 const logger = createLogger("maxq:executor:flow-discovery");
+
+/**
+ * Read flow metadata from flow.yaml if it exists
+ *
+ * @param flowPath - Path to the flow directory
+ * @returns Flow title or undefined if not found
+ */
+async function readFlowMetadata(flowPath: string): Promise<string | undefined> {
+  const flowYamlPath = join(flowPath, "flow.yaml");
+
+  try {
+    const yamlContent = await readFile(flowYamlPath, "utf-8");
+    const metadata = parseYaml(yamlContent) as { title?: string };
+    return metadata?.title;
+  } catch {
+    // flow.yaml is optional, don't log errors
+    return undefined;
+  }
+}
 
 /**
  * Discover all flows from the flows root directory
@@ -42,14 +62,19 @@ export async function discoverFlows(
       // Discover steps
       const steps = await discoverSteps(flowPath);
 
+      // Read flow metadata (title from flow.yaml)
+      const title = await readFlowMetadata(flowPath);
+
       flows.push({
         name: entry.name,
         path: flowPath,
         steps,
+        title,
       });
 
       logger.debug("Discovered flow", {
         name: entry.name,
+        title,
         steps: steps.length,
       });
     }
@@ -118,11 +143,13 @@ export async function getFlow(
   try {
     await access(flowScriptPath, constants.X_OK);
     const steps = await discoverSteps(flowPath);
+    const title = await readFlowMetadata(flowPath);
 
     return {
       name: flowName,
       path: flowPath,
       steps,
+      title,
     };
   } catch (error) {
     logger.warn("Flow not found or not executable", { flowName, error });

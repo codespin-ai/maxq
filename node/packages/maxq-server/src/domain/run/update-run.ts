@@ -67,6 +67,8 @@ export async function updateRun(
             duration_ms: p.durationMs,
             stdout: p.stdout,
             stderr: p.stderr,
+            name: p.name,
+            description: p.description,
           })
           .where((r) => r.id === p.id)
           .returning((r) => r),
@@ -80,6 +82,8 @@ export async function updateRun(
         durationMs: finalDurationMs,
         stdout: input.stdout ?? existing.stdout,
         stderr: input.stderr ?? existing.stderr,
+        name: input.name ?? existing.name,
+        description: input.description ?? existing.description,
       },
     );
 

@@ -36,6 +36,7 @@ export async function createRun(
             status: "pending",
             input: p.input,
             metadata: p.metadata,
+            flow_title: p.flowTitle,
             created_at: p.createdAt,
           })
           .returning((r) => r),
@@ -44,6 +45,7 @@ export async function createRun(
         flowName: input.flowName,
         input: input.input || null,
         metadata: input.metadata || null,
+        flowTitle: input.flowTitle || null,
         createdAt: now,
       },
     );

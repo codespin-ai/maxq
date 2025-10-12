@@ -13,6 +13,8 @@ export const updateRunSchema = z.object({
   status: z.enum(["pending", "running", "completed", "failed"]).optional(),
   output: z.unknown().optional(),
   error: z.unknown().optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
 });
 
 /**

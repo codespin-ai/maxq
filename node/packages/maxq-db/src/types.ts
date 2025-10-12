@@ -36,6 +36,9 @@ export type RunDbRow = {
   duration_ms: number | null;
   stdout: string | null;
   stderr: string | null;
+  name: string | null;
+  description: string | null;
+  flow_title: string | null;
 };
 
 // Stage table row (exact database schema with snake_case)
