@@ -330,8 +330,12 @@ echo "Executing ${stepName}"
         "http://localhost:5003/api/v1",
         8192,
         5,
-        async () => {
-          /* no-op */
+        async (result) => {
+          // Return final status based on exit code
+          return {
+            finalStatus:
+              result.processResult.exitCode === 0 ? "completed" : "failed",
+          };
         },
       );
 
@@ -371,8 +375,12 @@ echo "Executing ${stepName}"
         "http://localhost:5003/api/v1",
         8192,
         10,
-        async () => {
-          /* no-op */
+        async (result) => {
+          // Return final status based on exit code
+          return {
+            finalStatus:
+              result.processResult.exitCode === 0 ? "completed" : "failed",
+          };
         },
       );
       const duration = Date.now() - startTime;
@@ -420,8 +428,12 @@ exit 1
           "http://localhost:5003/api/v1",
           8192,
           5,
-          async () => {
-            /* no-op */
+          async (result) => {
+            // Return final status based on exit code
+            return {
+              finalStatus:
+                result.processResult.exitCode === 0 ? "completed" : "failed",
+            };
           },
         );
         expect.fail("Should have thrown error");
@@ -447,8 +459,12 @@ exit 1
         "http://localhost:5003/api/v1",
         8192,
         10,
-        async () => {
-          /* no-op */
+        async (result) => {
+          // Return final status based on exit code
+          return {
+            finalStatus:
+              result.processResult.exitCode === 0 ? "completed" : "failed",
+          };
         },
       );
 
@@ -516,8 +532,12 @@ exit 0
         "http://localhost:5003/api/v1",
         8192,
         5,
-        async () => {
-          /* no-op */
+        async (result) => {
+          // Return final status based on exit code
+          return {
+            finalStatus:
+              result.processResult.exitCode === 0 ? "completed" : "failed",
+          };
         },
       );
 
@@ -564,8 +584,12 @@ exit 1
           "http://localhost:5003/api/v1",
           8192,
           5,
-          async () => {
-            /* no-op */
+          async (result) => {
+            // Return final status based on exit code
+            return {
+              finalStatus:
+                result.processResult.exitCode === 0 ? "completed" : "failed",
+            };
           },
         );
         expect.fail("Should have thrown error");

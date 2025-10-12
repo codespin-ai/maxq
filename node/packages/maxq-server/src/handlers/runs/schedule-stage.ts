@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { createLogger } from "@codespin/maxq-logger";
+import type { IDatabase } from "pg-promise";
 import type { DataContext } from "../../domain/data-context.js";
 import { createStage } from "../../domain/stage/create-stage.js";
 import { createStep } from "../../domain/step/create-step.js";
@@ -11,7 +12,13 @@ const logger = createLogger("maxq:handlers:runs:schedule-stage");
 
 // Validation schema matching spec 6.4.5
 const stepSchema = z.object({
-  id: z.string().min(1), // Unique step ID supplied by flow
+  id: z
+    .string()
+    .min(1)
+    .regex(
+      /^[a-zA-Z0-9_-]+$/,
+      "Step ID must contain only alphanumeric characters, hyphens, and underscores",
+    ), // Unique step ID supplied by flow - spec §6.4.5
   name: z.string().min(1), // Script directory name
   dependsOn: z.array(z.string()).optional().default([]), // Array of step IDs
   maxRetries: z.number().int().min(0).default(0),
@@ -62,62 +69,96 @@ export function scheduleStageHandler(ctx: DataContext) {
         }
       }
 
+      // Validate run exists before creating any records
+      const { getRun } = await import("../../domain/run/get-run.js");
+      const runResult = await getRun(ctx, runId);
+      if (!runResult.success) {
+        logger.error("Failed to fetch run", { runId, error: runResult.error });
+        res.status(500).json({ error: "Failed to fetch run" });
+        return;
+      }
+      if (!runResult.data) {
+        logger.warn("Run not found", { runId });
+        res.status(404).json({ error: "Run not found" });
+        return;
+      }
+
+      const flowName = runResult.data.flowName;
+
       logger.info("Scheduling stage", {
         runId,
+        flowName,
         stage: input.stage,
         final: input.final,
         stepCount: input.steps.length,
       });
 
-      // Create stage record
-      const stageResult = await createStage(ctx, {
-        runId,
-        name: input.stage,
-        final: input.final,
-      });
+      // Create stage and steps in a transaction to ensure atomicity
+      // If any part fails, the entire operation rolls back
+      let stageId: string;
+      let createdSteps;
+      try {
+        const transactionResult = await ctx.db.tx(async (t) => {
+          // Create transaction context with IDatabase-compatible interface
+          const txCtx = { ...ctx, db: t as unknown as IDatabase<unknown> };
 
-      if (!stageResult.success) {
-        logger.error("Failed to create stage", {
+          // Create stage record
+          const stageResult = await createStage(txCtx, {
+            runId,
+            name: input.stage,
+            final: input.final,
+          });
+
+          if (!stageResult.success) {
+            throw new Error(
+              `Failed to create stage: ${stageResult.error.message}`,
+            );
+          }
+
+          const stage = stageResult.data;
+          const stageId = stage.id;
+
+          // Create step records for all steps
+          const createdSteps = [];
+          for (const stepDef of input.steps) {
+            const stepResult = await createStep(txCtx, {
+              id: stepDef.id, // Flow-supplied unique ID
+              runId,
+              stageId,
+              name: stepDef.name,
+              dependsOn: stepDef.dependsOn || [],
+              maxRetries: stepDef.maxRetries || 0,
+              env: stepDef.env,
+            });
+
+            if (!stepResult.success) {
+              throw new Error(
+                `Failed to create step ${stepDef.id}: ${stepResult.error.message}`,
+              );
+            }
+
+            createdSteps.push(stepResult.data);
+          }
+
+          return { stageId, createdSteps };
+        });
+
+        stageId = transactionResult.stageId;
+        createdSteps = transactionResult.createdSteps;
+      } catch (error) {
+        logger.error("Transaction failed, rolled back", {
           runId,
           stage: input.stage,
-          error: stageResult.error,
+          error,
         });
-        res.status(500).json({ error: stageResult.error.message });
+        res.status(500).json({
+          error: "Failed to create stage and steps",
+          details: error instanceof Error ? error.message : String(error),
+        });
         return;
       }
 
-      const stage = stageResult.data;
-      const stageId = stage.id;
-
-      // Create step records for all steps
-      const createdSteps = [];
-      for (const stepDef of input.steps) {
-        const stepResult = await createStep(ctx, {
-          id: stepDef.id, // Flow-supplied unique ID
-          runId,
-          stageId,
-          name: stepDef.name,
-          dependsOn: stepDef.dependsOn || [],
-          maxRetries: stepDef.maxRetries || 0,
-          env: stepDef.env,
-        });
-
-        if (!stepResult.success) {
-          logger.error("Failed to create step", {
-            runId,
-            stageId,
-            stepId: stepDef.id,
-            stepName: stepDef.name,
-            error: stepResult.error,
-          });
-          res.status(500).json({ error: stepResult.error.message });
-          return;
-        }
-
-        createdSteps.push(stepResult.data);
-      }
-
-      logger.info("Created stage and steps", {
+      logger.info("Created stage and steps atomically", {
         runId,
         stageId,
         stageName: input.stage,
@@ -133,18 +174,6 @@ export function scheduleStageHandler(ctx: DataContext) {
         maxRetries: step.maxRetries,
         env: step.env,
       }));
-
-      // TODO: Get flowName from run record
-      // For now, we need to fetch the run to get flowName
-      const { getRun } = await import("../../domain/run/get-run.js");
-      const runResult = await getRun(ctx, runId);
-      if (!runResult.success || !runResult.data) {
-        logger.error("Failed to get run for step execution", { runId });
-        res.status(500).json({ error: "Failed to get run" });
-        return;
-      }
-
-      const flowName = runResult.data.flowName;
 
       executeStepsDAG(
         stepDefinitions,
@@ -165,19 +194,68 @@ export function scheduleStageHandler(ctx: DataContext) {
             exitCode: result.processResult.exitCode,
           });
 
+          // Check if step has fields posted (explicit status from step.sh)
+          const { getStep } = await import("../../domain/step/get-step.js");
+          const stepResult = await getStep(ctx, result.id);
+
+          // If step has fields posted, status was explicitly set by step.sh - respect it
+          // Otherwise use exit code as fallback per spec §5.5
+          let status: "completed" | "failed" | undefined;
+          const hasFieldsPosted =
+            stepResult.success &&
+            stepResult.data &&
+            stepResult.data.fields &&
+            Object.keys(stepResult.data.fields).length > 0;
+
+          if (hasFieldsPosted) {
+            // Step explicitly posted fields - status is authoritative, don't overwrite
+            status = undefined;
+            logger.debug("Step status already set via /fields POST", {
+              stepId: result.id,
+              status: stepResult.data!.status,
+            });
+          } else {
+            // No /fields POST - use exit code (may be retry attempt)
+            status =
+              result.processResult.exitCode === 0 ? "completed" : "failed";
+            logger.debug("Setting step status from exit code", {
+              stepId: result.id,
+              exitCode: result.processResult.exitCode,
+              status,
+              retryCount: result.retryCount,
+            });
+          }
+
           // Update step with execution results
           const { updateStep } = await import(
             "../../domain/step/update-step.js"
           );
-          const status =
-            result.processResult.exitCode === 0 ? "completed" : "failed";
-          await updateStep(ctx, result.id, {
-            status,
+          const updateResult = await updateStep(ctx, result.id, {
+            ...(status ? { status } : {}), // Only set status if not already set
             stdout: result.processResult.stdout,
             stderr: result.processResult.stderr,
             retryCount: result.retryCount,
             completedAt: Date.now(),
           });
+
+          // Return the final status from DB (authoritative per spec §5.5)
+          if (!updateResult.success || !updateResult.data) {
+            // If update failed, fall back to computed status
+            return { finalStatus: status || "failed" };
+          }
+
+          // Extract final status - should only be "completed" or "failed" at this point
+          const finalStatus = updateResult.data.status;
+          if (finalStatus !== "completed" && finalStatus !== "failed") {
+            // Should never happen, but handle gracefully
+            logger.warn("Unexpected step status after update", {
+              stepId: result.id,
+              status: finalStatus,
+            });
+            return { finalStatus: "failed" };
+          }
+
+          return { finalStatus };
         },
       )
         .then(async () => {
@@ -248,6 +326,31 @@ export function scheduleStageHandler(ctx: DataContext) {
             status: "failed",
             completedAt: Date.now(),
           });
+
+          // Call flow with MAXQ_FAILED_STAGE per spec §10.2
+          logger.info("Calling flow with MAXQ_FAILED_STAGE", {
+            runId,
+            failedStage: input.stage,
+          });
+          const { executeFlowStageFailed } = await import(
+            "../../executor/flow-executor.js"
+          );
+          try {
+            await executeFlowStageFailed({
+              runId,
+              flowName,
+              flowsRoot: ctx.executor.config.flowsRoot,
+              apiUrl: ctx.executor.apiUrl,
+              maxLogCapture: ctx.executor.config.maxLogCapture,
+              failedStage: input.stage,
+            });
+          } catch (flowError) {
+            logger.error("Flow callback failed after stage failure", {
+              runId,
+              failedStage: input.stage,
+              error: flowError,
+            });
+          }
 
           // Mark run as failed
           const { updateRun } = await import("../../domain/run/update-run.js");

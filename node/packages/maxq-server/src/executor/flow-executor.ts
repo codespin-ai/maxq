@@ -3,6 +3,7 @@
  * Captures stdout/stderr and parses JSON responses
  */
 
+import * as path from "node:path";
 import { createLogger } from "@codespin/maxq-logger";
 import type { ProcessResult } from "./types.js";
 import { buildFlowPath } from "./security.js";
@@ -97,10 +98,12 @@ export async function executeFlow(
   logger.debug("Spawning flow process", { flowPath, env });
 
   // Spawn flow.sh and capture output
+  // Per spec §5.4: flows run from {flowsRoot}/{flowName}
+  const flowCwd = cwd || path.join(flowsRoot, flowName);
   const processResult = await spawnProcess(
     flowPath,
     env,
-    cwd || flowsRoot,
+    flowCwd,
     maxLogCapture,
   );
 

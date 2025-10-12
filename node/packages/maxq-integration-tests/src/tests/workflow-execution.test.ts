@@ -545,4 +545,213 @@ exit 0
       { runId, status: "completed" },
     );
   });
+
+  it("should honor fields.status over exit code (exit 0 with status failed)", async () => {
+    // Create flow
+    const flowDir = join(flowsRoot, "status-override-flow");
+    await mkdir(flowDir);
+    const flowScript = join(flowDir, "flow.sh");
+    await writeFile(
+      flowScript,
+      `#!/bin/bash
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "override-stage",
+    "final": true,
+    "steps": [
+      {"id": "override-step", "name": "override-step", "maxRetries": 0, "dependsOn": []}
+    ]
+  }'
+`,
+    );
+    await chmod(flowScript, 0o755);
+
+    // Create step that sleep briefly to allow us to post fields first
+    const stepsDir = join(flowDir, "steps");
+    await mkdir(stepsDir);
+    const stepDir = join(stepsDir, "override-step");
+    await mkdir(stepDir);
+    const stepScript = join(stepDir, "step.sh");
+    await writeFile(
+      stepScript,
+      `#!/bin/bash
+echo "Step executing"
+# Sleep to allow test to post fields
+sleep 0.5
+echo "Exiting with code 0"
+exit 0
+`,
+    );
+    await chmod(stepScript, 0o755);
+
+    // Reconfigure server
+    await testServer.reconfigure({ flowsRoot });
+
+    // Create run
+    const createResponse = await client.post<Run>("/api/v1/runs", {
+      flowName: "status-override-flow",
+    });
+
+    const runId = createResponse.data.id;
+
+    // Wait for step to be created
+    const createdSteps = await testDb.waitForQuery<
+      { runId: string },
+      { id: string; name: string }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ id: s.id, name: s.name })),
+      { runId },
+      { timeout: 3000 },
+    );
+
+    expect(createdSteps).to.have.lengthOf(1);
+    const stepId = createdSteps[0]!.id;
+
+    // Post status="failed" via /fields endpoint (per spec §5.5)
+    // This should override the exit code 0
+    const fieldsResponse = await client.post(
+      `/api/v1/runs/${runId}/steps/${stepId}/fields`,
+      {
+        fields: {
+          status: "failed",
+          reason: "validation failed",
+        },
+      },
+    );
+    expect(fieldsResponse.status).to.equal(200);
+
+    // Wait for step to complete (with any status)
+    await testDb.waitForQuery<{ runId: string }, { status: string }>(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ status: s.status })),
+      { runId },
+      {
+        timeout: 5000,
+        condition: (rows) => rows.length > 0 && rows[0]!.status !== "pending",
+      },
+    );
+
+    // Now check run status - should be failed (wait for terminal state)
+    const runs = await testDb.waitForQuery<
+      { runId: string },
+      { status: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId)
+          .select((r) => ({ status: r.status })),
+      { runId },
+      {
+        timeout: 5000,
+        condition: (rows) =>
+          rows.length > 0 &&
+          rows[0]!.status !== "pending" &&
+          rows[0]!.status !== "running",
+      },
+    );
+
+    expect(runs).to.have.lengthOf(1);
+    expect(runs[0]!.status).to.equal("failed");
+
+    // Verify stage was marked as failed
+    const stages = await testDb.waitForQuery<
+      { runId: string },
+      { status: string }
+    >(
+      (q, p) =>
+        q
+          .from("stage")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ status: s.status })),
+      { runId },
+    );
+
+    expect(stages).to.have.lengthOf(1);
+    expect(stages[0]!.status).to.equal("failed");
+
+    // Verify step was marked as failed (fields.status took precedence)
+    const steps = await testDb.waitForQuery<
+      { runId: string },
+      { status: string; fields: unknown }
+    >(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ status: s.status, fields: s.fields })),
+      { runId },
+    );
+
+    expect(steps).to.have.lengthOf(1);
+    expect(steps[0]!.status).to.equal("failed");
+    // fields is JSONB, pg-promise parses it automatically to object
+    const fields = steps[0]!.fields as Record<string, unknown>;
+    expect(fields.status).to.equal("failed");
+    expect(fields.reason).to.equal("validation failed");
+  });
+
+  it("should return 404 for scheduling stage with non-existent run", async () => {
+    // Create flow
+    const flowDir = join(flowsRoot, "test-flow");
+    await mkdir(flowDir);
+    const flowScript = join(flowDir, "flow.sh");
+    await writeFile(flowScript, `#!/bin/bash\necho "Flow"\n`);
+    await chmod(flowScript, 0o755);
+
+    // Reconfigure server
+    await testServer.reconfigure({ flowsRoot });
+
+    // Try to schedule stage for non-existent run
+    const fakeRunId = "00000000-0000-0000-0000-000000000000";
+
+    const response = await client.post(`/api/v1/runs/${fakeRunId}/steps`, {
+      stage: "dummy",
+      final: true,
+      steps: [
+        {
+          id: "dummy-step",
+          name: "dummy-step",
+          dependsOn: [],
+          maxRetries: 0,
+        },
+      ],
+    });
+
+    // Should return 404, not 500
+    expect(response.status).to.equal(404);
+    expect(response.data).to.deep.equal({ error: "Run not found" });
+
+    // Verify no stage or step records were created (transaction rolled back)
+    // Use waitForQuery with immediate condition check
+    const stages = await testDb.waitForQuery<{ runId: string }, { id: string }>(
+      (q, p) =>
+        q
+          .from("stage")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ id: s.id })),
+      { runId: fakeRunId },
+      { timeout: 500, condition: () => true }, // Check immediately
+    );
+    expect(stages).to.have.lengthOf(0);
+
+    const steps = await testDb.waitForQuery<{ runId: string }, { id: string }>(
+      (q, p) =>
+        q
+          .from("step")
+          .where((s) => s.run_id === p.runId)
+          .select((s) => ({ id: s.id })),
+      { runId: fakeRunId },
+      { timeout: 500, condition: () => true }, // Check immediately
+    );
+    expect(steps).to.have.lengthOf(0);
+  });
 });
