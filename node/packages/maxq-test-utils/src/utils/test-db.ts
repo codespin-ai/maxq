@@ -1,8 +1,14 @@
 import knex from "knex";
 import { Knex } from "knex";
+import pgPromise from "pg-promise";
+import type { IDatabase } from "pg-promise";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { Logger, consoleLogger } from "./test-logger.js";
+import { schema } from "@codespin/maxq-db";
+import { executeSelect } from "@webpods/tinqer-sql-pg-promise";
+import type { DatabaseSchema } from "@codespin/maxq-db";
+import type { QueryBuilder } from "@webpods/tinqer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,8 +21,13 @@ export interface TestDatabaseConfig {
   logger?: Logger;
 }
 
+const pgp = pgPromise();
+// Parse bigint as number instead of string
+pgp.pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
+
 export class TestDatabase {
   private db: Knex | null = null;
+  private pgDb: IDatabase<unknown> | null = null;
   private config: TestDatabaseConfig;
   private logger: Logger;
 
@@ -61,7 +72,7 @@ export class TestDatabase {
       await adminDb.destroy();
     }
 
-    // Now connect to the fresh test database
+    // Now connect to the fresh test database with Knex (for migrations)
     this.db = knex({
       client: "pg",
       connection: {
@@ -72,6 +83,10 @@ export class TestDatabase {
         password: this.config.password,
       },
     });
+
+    // Also create pg-promise connection for Tinqer queries
+    const connectionString = `postgresql://${this.config.user}:${this.config.password}@${this.config.host}:${this.config.port}/${this.config.dbName}`;
+    this.pgDb = pgp(connectionString);
 
     // Run all migrations from scratch
     const migrationsPath = path.join(
@@ -90,17 +105,22 @@ export class TestDatabase {
   }
 
   public async truncateAllTables(): Promise<void> {
-    if (!this.db) throw new Error("Database not initialized");
+    if (!this.pgDb) throw new Error("Database not initialized");
 
-    // Get all tables except knex_migrations
-    const tables = await this.db("pg_tables")
-      .select("tablename")
-      .where("schemaname", "public")
-      .whereNotIn("tablename", ["knex_migrations", "knex_migrations_lock"]);
+    // Get all tables except knex_migrations using pg-promise
+    // This uses the SAME connection pool as the server, avoiding isolation issues
+    const tables = await this.pgDb.any<{ tablename: string }>(
+      `
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public'
+      AND tablename NOT IN ('knex_migrations', 'knex_migrations_lock')
+    `,
+    );
 
-    // Truncate all tables
+    // Truncate all tables using pg-promise (not Knex)
+    // This ensures the server's pg-promise connection sees the truncation immediately
     for (const { tablename } of tables) {
-      await this.db.raw(`TRUNCATE TABLE "${tablename}" CASCADE`);
+      await this.pgDb.none(`TRUNCATE TABLE "${tablename}" CASCADE`);
     }
   }
 
@@ -109,6 +129,10 @@ export class TestDatabase {
       await this.db.destroy();
       this.db = null;
     }
+    if (this.pgDb) {
+      await this.pgDb.$pool.end();
+      this.pgDb = null;
+    }
   }
 
   public getKnex(): Knex {
@@ -116,10 +140,66 @@ export class TestDatabase {
     return this.db;
   }
 
+  public getPgDb(): IDatabase<unknown> {
+    if (!this.pgDb) throw new Error("Database not initialized");
+    return this.pgDb;
+  }
+
+  /**
+   * Wait for a Tinqer query to return rows that match a condition
+   * Polls the database at regular intervals until condition is met or timeout
+   * Uses type-safe Tinqer query builder
+   *
+   * @param queryBuilder - Tinqer query builder function
+   * @param params - Query parameters object
+   * @param options - Wait options (timeout, interval, condition)
+   * @returns Query results when condition is met
+   * @throws Error if timeout is reached
+   */
+  public async waitForQuery<TParams, TResult>(
+    queryBuilder: (q: QueryBuilder<DatabaseSchema>, p: TParams) => any,
+    params: TParams,
+    options: {
+      timeout?: number;
+      interval?: number;
+      condition?: (rows: TResult[]) => boolean;
+    } = {},
+  ): Promise<TResult[]> {
+    if (!this.pgDb) throw new Error("Database not initialized");
+
+    const timeout = options.timeout || 5000; // 5 seconds default
+    const interval = options.interval || 100; // 100ms default
+    const condition = options.condition || ((rows) => rows.length > 0);
+
+    const startTime = Date.now();
+
+    while (true) {
+      const rows = (await executeSelect(
+        this.pgDb,
+        schema,
+        queryBuilder,
+        params,
+      )) as TResult[];
+
+      if (condition(rows)) {
+        return rows;
+      }
+
+      if (Date.now() - startTime > timeout) {
+        throw new Error(
+          `waitForQuery timeout after ${timeout}ms. Last result: ${JSON.stringify(rows)}`,
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
+
   /**
    * Wait for a SQL query to return rows that match a condition
    * Polls the database at regular intervals until condition is met or timeout
    *
+   * @deprecated Use waitForQuery with Tinqer query builder instead
    * @param query - Raw SQL query string with ? placeholders
    * @param params - Array of query parameters (positional)
    * @param options - Wait options (timeout, interval, condition)

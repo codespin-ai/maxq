@@ -49,13 +49,13 @@ describe("Executor Security Utilities", () => {
     });
 
     it("should reject non-string names", () => {
-      expect(() => validateName(null as any, "flow")).to.throw(
+      expect(() => validateName(null as unknown as string, "flow")).to.throw(
         /non-empty string/,
       );
-      expect(() => validateName(undefined as any, "flow")).to.throw(
-        /non-empty string/,
-      );
-      expect(() => validateName(123 as any, "flow")).to.throw(
+      expect(() =>
+        validateName(undefined as unknown as string, "flow"),
+      ).to.throw(/non-empty string/);
+      expect(() => validateName(123 as unknown as string, "flow")).to.throw(
         /non-empty string/,
       );
     });
@@ -119,9 +119,9 @@ describe("Executor Security Utilities", () => {
 
     it("should convert non-string values to strings", () => {
       const env = {
-        NUMBER: 123 as any,
-        BOOLEAN: true as any,
-        OBJECT: { foo: "bar" } as any,
+        NUMBER: 123 as unknown as string,
+        BOOLEAN: true as unknown as string,
+        OBJECT: { foo: "bar" } as unknown as string,
       };
       const sanitized = sanitizeEnv(env);
       expect(sanitized.NUMBER).to.equal("123");

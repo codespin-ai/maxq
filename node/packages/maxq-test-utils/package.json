@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq-test-utils",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Testing utilities for MaxQ",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,10 +19,14 @@
     "@codespin/maxq-logger": "file:../maxq-logger",
     "@codespin/maxq-db": "file:../maxq-db",
     "@codespin/maxq-server": "file:../maxq-server",
-    "knex": "^3.1.0"
+    "@webpods/tinqer": "^0.0.14",
+    "@webpods/tinqer-sql-pg-promise": "^0.0.14",
+    "knex": "^3.1.0",
+    "pg-promise": "^11.10.4"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
+    "@types/pg-promise": "^0.0.28",
     "typescript": "^5.7.3"
   }
 }

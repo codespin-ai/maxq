@@ -3,6 +3,7 @@
  * Captures stdout/stderr and parses JSON responses
  */
 
+import * as path from "node:path";
 import { createLogger } from "@codespin/maxq-logger";
 import type { ProcessResult } from "./types.js";
 import { buildFlowPath } from "./security.js";
@@ -97,10 +98,12 @@ export async function executeFlow(
   logger.debug("Spawning flow process", { flowPath, env });
 
   // Spawn flow.sh and capture output
+  // Per spec §5.4: flows run from {flowsRoot}/{flowName}
+  const flowCwd = cwd || path.join(flowsRoot, flowName);
   const processResult = await spawnProcess(
     flowPath,
     env,
-    cwd || flowsRoot,
+    flowCwd,
     maxLogCapture,
   );
 
@@ -111,31 +114,20 @@ export async function executeFlow(
     durationMs: processResult.durationMs,
   });
 
-  // Parse JSON response from stdout
-  let response: FlowResponse | null = null;
-  if (processResult.exitCode === 0 && processResult.stdout.trim()) {
-    try {
-      response = JSON.parse(processResult.stdout) as FlowResponse;
-      logger.info("Flow response parsed", {
-        stage: response.stage,
-        final: response.final,
-        stepCount: response.steps.length,
-      });
-    } catch (error) {
-      logger.error("Failed to parse flow response", {
-        error,
-        stdout: processResult.stdout,
-      });
-    }
-  } else if (processResult.exitCode !== 0) {
+  // Flows communicate via HTTP API calls (not stdout)
+  // They call schedule_stage() which POSTs to /runs/{runId}/steps
+  // We only check exit code here
+  if (processResult.exitCode !== 0) {
     logger.error("Flow execution failed", {
       exitCode: processResult.exitCode,
       stderr: processResult.stderr,
     });
+  } else {
+    logger.info("Flow execution completed successfully");
   }
 
   return {
-    response,
+    response: null, // Flows communicate via HTTP API, not stdout
     processResult,
   };
 }

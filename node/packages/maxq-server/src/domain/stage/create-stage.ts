@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
-import { sql, type StageDbRow } from "@codespin/maxq-db";
+import { schema } from "@codespin/maxq-db";
+import { executeInsert } from "@webpods/tinqer-sql-pg-promise";
 import type { DataContext } from "../data-context.js";
 import type { Stage, CreateStageInput } from "../../types.js";
 import { mapStageFromDb } from "../../mappers.js";
@@ -23,19 +24,34 @@ export async function createStage(
     const id = uuidv4();
     const now = Date.now();
 
-    const params = {
-      id,
-      run_id: input.runId,
-      name: input.name,
-      final: input.final,
-      status: "pending" as const,
-      created_at: now,
-    };
-
-    const row = await ctx.db.one<StageDbRow>(
-      `${sql.insert("stage", params)} RETURNING *`,
-      params,
+    const rows = await executeInsert(
+      ctx.db,
+      schema,
+      (q, p) =>
+        q
+          .insertInto("stage")
+          .values({
+            id: p.id,
+            run_id: p.runId,
+            name: p.name,
+            final: p.final,
+            status: "pending",
+            created_at: p.createdAt,
+          })
+          .returning((r) => r),
+      {
+        id,
+        runId: input.runId,
+        name: input.name,
+        final: input.final,
+        createdAt: now,
+      },
     );
+
+    const row = rows[0];
+    if (!row) {
+      return failure(new Error("Failed to create stage"));
+    }
 
     logger.info("Created stage", { id, runId: input.runId, name: input.name });
 

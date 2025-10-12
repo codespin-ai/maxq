@@ -35,9 +35,9 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].name).to.equal("test-flow");
-      expect(flows[0].path).to.equal(flowDir);
-      expect(flows[0].steps).to.be.an("array");
+      expect(flows[0]!.name).to.equal("test-flow");
+      expect(flows[0]!.path).to.equal(flowDir);
+      expect(flows[0]!.steps).to.be.an("array");
     });
 
     it("should discover multiple flows", async () => {
@@ -72,7 +72,7 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].name).to.equal("valid-flow");
+      expect(flows[0]!.name).to.equal("valid-flow");
     });
 
     it("should skip directories with non-executable flow.sh", async () => {
@@ -93,7 +93,7 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].name).to.equal("executable-flow");
+      expect(flows[0]!.name).to.equal("executable-flow");
     });
 
     it("should discover steps within flow", async () => {
@@ -120,9 +120,9 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].name).to.equal("flow-with-steps");
-      expect(flows[0].steps).to.have.lengthOf(3);
-      const stepNames = flows[0].steps.sort();
+      expect(flows[0]!.name).to.equal("flow-with-steps");
+      expect(flows[0]!.steps).to.have.lengthOf(3);
+      const stepNames = flows[0]!.steps.sort();
       expect(stepNames).to.deep.equal(["step-1", "step-2", "step-3"]);
     });
 
@@ -155,8 +155,8 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].steps).to.have.lengthOf(1);
-      expect(flows[0].steps[0]).to.equal("executable-step");
+      expect(flows[0]!.steps).to.have.lengthOf(1);
+      expect(flows[0]!.steps[0]!).to.equal("executable-step");
     });
 
     it("should handle flow without steps directory", async () => {
@@ -170,8 +170,8 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].name).to.equal("flow-no-steps");
-      expect(flows[0].steps).to.be.an("array").with.lengthOf(0);
+      expect(flows[0]!.name).to.equal("flow-no-steps");
+      expect(flows[0]!.steps).to.be.an("array").with.lengthOf(0);
     });
 
     it("should handle empty flows directory", async () => {
@@ -194,7 +194,7 @@ describe("Executor Flow Discovery", () => {
       const flows = await discoverFlows(flowsRoot);
 
       expect(flows).to.have.lengthOf(1);
-      expect(flows[0].name).to.equal("valid-flow");
+      expect(flows[0]!.name).to.equal("valid-flow");
     });
   });
 

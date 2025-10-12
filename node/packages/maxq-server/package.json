@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq-server",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "MaxQ workflow orchestration server",
   "type": "module",
   "main": "./dist/index.js",

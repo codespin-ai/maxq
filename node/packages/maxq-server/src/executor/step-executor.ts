@@ -3,6 +3,7 @@
  * Executes steps respecting dependencies with configurable concurrency
  */
 
+import * as path from "node:path";
 import { createLogger } from "@codespin/maxq-logger";
 import type { ProcessResult } from "./types.js";
 import { buildStepPath } from "./security.js";
@@ -14,9 +15,9 @@ const logger = createLogger("maxq:executor:step");
  * Step definition from flow response
  */
 export type StepDefinition = {
-  name: string;
-  dependsOn?: string[];
-  instances?: number;
+  id: string; // Unique step ID supplied by flow (e.g., "fetch-news", "analyzer-0")
+  name: string; // Step script directory name (e.g., "fetch_news", "analyzer")
+  dependsOn?: string[]; // Array of step IDs (not names)
   maxRetries?: number;
   env?: Record<string, string>;
 };
@@ -25,8 +26,8 @@ export type StepDefinition = {
  * Step execution state
  */
 type StepExecutionState = {
-  name: string;
-  sequence: number;
+  id: string; // Unique step ID
+  name: string; // Script directory name
   status: "pending" | "running" | "completed" | "failed";
   dependsOn: string[];
   retryCount: number;
@@ -38,8 +39,8 @@ type StepExecutionState = {
  * Step execution result
  */
 export type StepExecutionResult = {
-  name: string;
-  sequence: number;
+  id: string; // Unique step ID
+  name: string; // Script directory name
   processResult: ProcessResult;
   retryCount: number;
 };
@@ -51,8 +52,8 @@ export type StepExecutionInput = {
   runId: string;
   flowName: string;
   stage: string;
-  stepName: string;
-  sequence: number;
+  stepId: string; // Unique step ID
+  stepName: string; // Script directory name
   flowsRoot: string;
   apiUrl: string;
   maxLogCapture: number;
@@ -73,8 +74,8 @@ export async function executeStep(
     runId,
     flowName,
     stage,
+    stepId,
     stepName,
-    sequence,
     flowsRoot,
     apiUrl,
     maxLogCapture,
@@ -86,8 +87,8 @@ export async function executeStep(
     runId,
     flowName,
     stage,
+    stepId,
     stepName,
-    sequence,
   });
 
   // Build safe path to step.sh
@@ -98,8 +99,8 @@ export async function executeStep(
     MAXQ_RUN_ID: runId,
     MAXQ_FLOW_NAME: flowName,
     MAXQ_STAGE: stage,
+    MAXQ_STEP_ID: stepId,
     MAXQ_STEP_NAME: stepName,
-    MAXQ_STEP_SEQUENCE: String(sequence),
     MAXQ_API: apiUrl,
     ...(userEnv || {}),
   };
@@ -107,16 +108,18 @@ export async function executeStep(
   logger.debug("Spawning step process", { stepPath, env });
 
   // Spawn step.sh and capture output
+  // Per spec §5.4: steps run from {flowsRoot}/{flowName}/steps/{stepName}
+  const stepCwd = cwd || path.join(flowsRoot, flowName, "steps", stepName);
   const processResult = await spawnProcess(
     stepPath,
     env,
-    cwd || flowsRoot,
+    stepCwd,
     maxLogCapture,
   );
 
   logger.debug("Step process completed", {
+    stepId,
     stepName,
-    sequence,
     exitCode: processResult.exitCode,
     stdoutLength: processResult.stdout.length,
     stderrLength: processResult.stderr.length,
@@ -135,38 +138,36 @@ export async function executeStep(
  * @throws Error if circular dependencies detected
  */
 export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
-  const stepMap = new Map(steps.map((s) => [s.name, s]));
+  const stepMap = new Map(steps.map((s) => [s.id, s]));
   const inDegree = new Map<string, number>();
   const adjList = new Map<string, string[]>();
 
   // Initialize in-degree and adjacency list
   for (const step of steps) {
-    inDegree.set(step.name, 0);
-    adjList.set(step.name, []);
+    inDegree.set(step.id, 0);
+    adjList.set(step.id, []);
   }
 
   // Build graph
   for (const step of steps) {
     const deps = step.dependsOn || [];
-    inDegree.set(step.name, deps.length);
+    inDegree.set(step.id, deps.length);
 
     for (const dep of deps) {
       if (!stepMap.has(dep)) {
-        throw new Error(`Step "${step.name}" depends on unknown step "${dep}"`);
+        throw new Error(`Step "${step.id}" depends on unknown step "${dep}"`);
       }
-      adjList.get(dep)!.push(step.name);
+      adjList.get(dep)!.push(step.id);
     }
   }
 
   // Topological sort with levels (for parallel execution)
   const result: StepDefinition[][] = [];
-  const remaining = new Set(steps.map((s) => s.name));
+  const remaining = new Set(steps.map((s) => s.id));
 
   while (remaining.size > 0) {
     // Find all steps with no remaining dependencies
-    const ready = Array.from(remaining).filter(
-      (name) => inDegree.get(name) === 0,
-    );
+    const ready = Array.from(remaining).filter((id) => inDegree.get(id) === 0);
 
     if (ready.length === 0) {
       throw new Error(
@@ -175,12 +176,12 @@ export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
     }
 
     // Add ready steps to current level
-    result.push(ready.map((name) => stepMap.get(name)!));
+    result.push(ready.map((id) => stepMap.get(id)!));
 
     // Remove ready steps and update in-degrees
-    for (const name of ready) {
-      remaining.delete(name);
-      for (const dependent of adjList.get(name)!) {
+    for (const id of ready) {
+      remaining.delete(id);
+      for (const dependent of adjList.get(id)!) {
         inDegree.set(dependent, inDegree.get(dependent)! - 1);
       }
     }
@@ -207,7 +208,7 @@ export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
  * @param apiUrl - API URL for callbacks
  * @param maxLogCapture - Max bytes to capture from stdout/stderr
  * @param maxConcurrentSteps - Max concurrent step executions
- * @param onStepComplete - Callback when step completes (for storing in DB)
+ * @param onStepComplete - Callback when step completes (returns final status from DB)
  * @returns Array of all step execution results
  */
 export async function executeStepsDAG(
@@ -219,7 +220,9 @@ export async function executeStepsDAG(
   apiUrl: string,
   maxLogCapture: number,
   maxConcurrentSteps: number,
-  onStepComplete: (result: StepExecutionResult) => Promise<void>,
+  onStepComplete: (
+    result: StepExecutionResult,
+  ) => Promise<{ finalStatus: "completed" | "failed" }>,
 ): Promise<StepExecutionResult[]> {
   logger.info("Executing steps with DAG", {
     runId,
@@ -246,29 +249,24 @@ export async function executeStepsDAG(
       stepsInLevel: level.length,
     });
 
-    // Create execution state for all step instances in this level
-    const executions: StepExecutionState[] = [];
-    for (const step of level) {
-      const instances = step.instances || 1;
-      for (let seq = 0; seq < instances; seq++) {
-        executions.push({
-          name: step.name,
-          sequence: seq,
-          status: "pending",
-          dependsOn: step.dependsOn || [],
-          retryCount: 0,
-          maxRetries: step.maxRetries || 0,
-          env: step.env || {},
-        });
-      }
-    }
+    // Create execution state for all steps in this level
+    const executions: StepExecutionState[] = level.map((step) => ({
+      id: step.id,
+      name: step.name,
+      status: "pending" as const,
+      dependsOn: step.dependsOn || [],
+      retryCount: 0,
+      maxRetries: step.maxRetries || 0,
+      env: step.env || {},
+    }));
 
-    // Execute all instances in parallel (with concurrency limit)
+    // Execute all steps in parallel (with concurrency limit)
     const levelResults = await executeWithConcurrency(
       executions,
       maxConcurrentSteps,
       async (exec) => {
         let lastError: ProcessResult | null = null;
+        let finalStatus: "completed" | "failed" = "failed";
 
         // Retry loop
         for (
@@ -278,8 +276,8 @@ export async function executeStepsDAG(
         ) {
           if (attempt > 0) {
             logger.info("Retrying step", {
+              stepId: exec.id,
               stepName: exec.name,
-              sequence: exec.sequence,
               attempt,
               maxRetries: exec.maxRetries,
             });
@@ -292,8 +290,8 @@ export async function executeStepsDAG(
             runId,
             flowName,
             stage,
+            stepId: exec.id,
             stepName: exec.name,
-            sequence: exec.sequence,
             flowsRoot,
             apiUrl,
             maxLogCapture,
@@ -301,18 +299,20 @@ export async function executeStepsDAG(
           });
 
           const result: StepExecutionResult = {
+            id: exec.id,
             name: exec.name,
-            sequence: exec.sequence,
             processResult,
             retryCount: exec.retryCount,
           };
 
-          // Store result after each attempt (including retries)
-          await onStepComplete(result);
+          // Store result after each attempt and get final status from DB
+          // The callback checks /fields POST and returns authoritative status per spec §5.5
+          const { finalStatus: statusFromDb } = await onStepComplete(result);
+          finalStatus = statusFromDb;
 
-          if (processResult.exitCode === 0) {
+          if (statusFromDb === "completed") {
             exec.status = "completed";
-            return result;
+            return { result, finalStatus };
           } else {
             lastError = processResult;
             exec.status = "failed";
@@ -321,31 +321,35 @@ export async function executeStepsDAG(
 
         // All retries exhausted
         logger.error("Step failed after all retries", {
+          stepId: exec.id,
           stepName: exec.name,
-          sequence: exec.sequence,
           retries: exec.retryCount,
         });
 
         return {
-          name: exec.name,
-          sequence: exec.sequence,
-          processResult: lastError!,
-          retryCount: exec.retryCount,
+          result: {
+            id: exec.id,
+            name: exec.name,
+            processResult: lastError!,
+            retryCount: exec.retryCount,
+          },
+          finalStatus,
         };
       },
     );
 
-    allResults.push(...levelResults);
+    allResults.push(...levelResults.map((r) => r.result));
 
-    // Check if any step failed in this level
-    const failedSteps = levelResults.filter(
-      (r) => r.processResult.exitCode !== 0,
-    );
+    // Check if any step failed in this level (use final status from DB, not exit code)
+    // Per spec §5.5: fields.status is authoritative signal
+    const failedSteps = levelResults.filter((r) => r.finalStatus === "failed");
     if (failedSteps.length > 0) {
       logger.error("Steps failed in level, aborting stage", {
         level: levelIndex + 1,
         failedCount: failedSteps.length,
-        failedSteps: failedSteps.map((r) => `${r.name}[${r.sequence}]`),
+        failedSteps: failedSteps.map(
+          (r) => `${r.result.id} (${r.result.name})`,
+        ),
       });
       throw new Error(
         `Stage failed: ${failedSteps.length} step(s) failed in level ${levelIndex + 1}`,
@@ -377,7 +381,7 @@ async function executeWithConcurrency<T, R>(
   executor: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results: (R | undefined)[] = new Array(items.length);
-  const executing: Promise<void>[] = [];
+  const executing = new Map<number, Promise<void>>();
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -387,19 +391,17 @@ async function executeWithConcurrency<T, R>(
 
     const promise = executor(item).then((result) => {
       results[i] = result;
+      executing.delete(i); // Remove self when complete
     });
 
-    executing.push(promise);
+    executing.set(i, promise);
 
-    if (executing.length >= maxConcurrency) {
-      await Promise.race(executing);
-      const completedIndex = executing.findIndex((p) => p === promise);
-      if (completedIndex !== -1) {
-        executing.splice(completedIndex, 1);
-      }
+    if (executing.size >= maxConcurrency) {
+      // Wait for any promise to complete (it will remove itself via .delete())
+      await Promise.race(executing.values());
     }
   }
 
-  await Promise.all(executing);
+  await Promise.all(executing.values());
   return results.filter((r): r is R => r !== undefined);
 }

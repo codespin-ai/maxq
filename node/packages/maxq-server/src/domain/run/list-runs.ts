@@ -1,5 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
+import { schema } from "@codespin/maxq-db";
+import { executeSelect } from "@webpods/tinqer-sql-pg-promise";
 import type { DataContext } from "../data-context.js";
 import type { Run, ListRunsParams, PaginatedResult } from "../../types.js";
 import { mapRunFromDb } from "../../mappers.js";
@@ -27,36 +29,268 @@ export async function listRuns(
       sortOrder = "desc",
     } = params;
 
-    // Build WHERE clause dynamically using named parameters
-    let whereClause = "";
-    const queryParams: Record<string, unknown> = { limit, offset };
-
-    if (flowName) {
-      whereClause += " WHERE flow_name = ${flowName}";
-      queryParams.flowName = flowName;
-    }
-
-    if (status) {
-      whereClause += whereClause ? " AND" : " WHERE";
-      whereClause += " status = ${status}";
-      queryParams.status = status;
-    }
-
     // Get total count
-    const countResult = await ctx.db.one<{ count: string }>(
-      `SELECT COUNT(*) as count FROM run${whereClause}`,
-      queryParams,
-    );
-    const total = Number(countResult.count);
+    const countRows =
+      flowName && status
+        ? await executeSelect(
+            ctx.db,
+            schema,
+            (q, p) =>
+              q
+                .from("run")
+                .where(
+                  (r) => r.flow_name === p.flowName && r.status === p.status,
+                )
+                .select((r) => ({ id: r.id })),
+            { flowName, status },
+          )
+        : flowName
+          ? await executeSelect(
+              ctx.db,
+              schema,
+              (q, p) =>
+                q
+                  .from("run")
+                  .where((r) => r.flow_name === p.flowName)
+                  .select((r) => ({ id: r.id })),
+              { flowName },
+            )
+          : status
+            ? await executeSelect(
+                ctx.db,
+                schema,
+                (q, p) =>
+                  q
+                    .from("run")
+                    .where((r) => r.status === p.status)
+                    .select((r) => ({ id: r.id })),
+                { status },
+              )
+            : await executeSelect(
+                ctx.db,
+                schema,
+                (q) => q.from("run").select((r) => ({ id: r.id })),
+                {},
+              );
+    const total = countRows.length;
 
     // Get paginated data
-    const sortColumn = sortBy === "createdAt" ? "created_at" : "completed_at";
-    const orderClause = `ORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
-
-    const rows = await ctx.db.many<import("@codespin/maxq-db").RunDbRow>(
-      `SELECT * FROM run${whereClause} ${orderClause} LIMIT \${limit} OFFSET \${offset}`,
-      queryParams,
-    );
+    const rows =
+      flowName && status
+        ? sortBy === "createdAt"
+          ? sortOrder === "desc"
+            ? await executeSelect(
+                ctx.db,
+                schema,
+                (q, p) =>
+                  q
+                    .from("run")
+                    .where(
+                      (r) =>
+                        r.flow_name === p.flowName && r.status === p.status,
+                    )
+                    .orderByDescending((r) => r.created_at)
+                    .skip(p.offset)
+                    .take(p.limit),
+                { flowName, status, offset, limit },
+              )
+            : await executeSelect(
+                ctx.db,
+                schema,
+                (q, p) =>
+                  q
+                    .from("run")
+                    .where(
+                      (r) =>
+                        r.flow_name === p.flowName && r.status === p.status,
+                    )
+                    .orderBy((r) => r.created_at)
+                    .skip(p.offset)
+                    .take(p.limit),
+                { flowName, status, offset, limit },
+              )
+          : sortOrder === "desc"
+            ? await executeSelect(
+                ctx.db,
+                schema,
+                (q, p) =>
+                  q
+                    .from("run")
+                    .where(
+                      (r) =>
+                        r.flow_name === p.flowName && r.status === p.status,
+                    )
+                    .orderByDescending((r) => r.completed_at)
+                    .skip(p.offset)
+                    .take(p.limit),
+                { flowName, status, offset, limit },
+              )
+            : await executeSelect(
+                ctx.db,
+                schema,
+                (q, p) =>
+                  q
+                    .from("run")
+                    .where(
+                      (r) =>
+                        r.flow_name === p.flowName && r.status === p.status,
+                    )
+                    .orderBy((r) => r.completed_at)
+                    .skip(p.offset)
+                    .take(p.limit),
+                { flowName, status, offset, limit },
+              )
+        : flowName
+          ? sortBy === "createdAt"
+            ? sortOrder === "desc"
+              ? await executeSelect(
+                  ctx.db,
+                  schema,
+                  (q, p) =>
+                    q
+                      .from("run")
+                      .where((r) => r.flow_name === p.flowName)
+                      .orderByDescending((r) => r.created_at)
+                      .skip(p.offset)
+                      .take(p.limit),
+                  { flowName, offset, limit },
+                )
+              : await executeSelect(
+                  ctx.db,
+                  schema,
+                  (q, p) =>
+                    q
+                      .from("run")
+                      .where((r) => r.flow_name === p.flowName)
+                      .orderBy((r) => r.created_at)
+                      .skip(p.offset)
+                      .take(p.limit),
+                  { flowName, offset, limit },
+                )
+            : sortOrder === "desc"
+              ? await executeSelect(
+                  ctx.db,
+                  schema,
+                  (q, p) =>
+                    q
+                      .from("run")
+                      .where((r) => r.flow_name === p.flowName)
+                      .orderByDescending((r) => r.completed_at)
+                      .skip(p.offset)
+                      .take(p.limit),
+                  { flowName, offset, limit },
+                )
+              : await executeSelect(
+                  ctx.db,
+                  schema,
+                  (q, p) =>
+                    q
+                      .from("run")
+                      .where((r) => r.flow_name === p.flowName)
+                      .orderBy((r) => r.completed_at)
+                      .skip(p.offset)
+                      .take(p.limit),
+                  { flowName, offset, limit },
+                )
+          : status
+            ? sortBy === "createdAt"
+              ? sortOrder === "desc"
+                ? await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .where((r) => r.status === p.status)
+                        .orderByDescending((r) => r.created_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { status, offset, limit },
+                  )
+                : await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .where((r) => r.status === p.status)
+                        .orderBy((r) => r.created_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { status, offset, limit },
+                  )
+              : sortOrder === "desc"
+                ? await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .where((r) => r.status === p.status)
+                        .orderByDescending((r) => r.completed_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { status, offset, limit },
+                  )
+                : await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .where((r) => r.status === p.status)
+                        .orderBy((r) => r.completed_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { status, offset, limit },
+                  )
+            : sortBy === "createdAt"
+              ? sortOrder === "desc"
+                ? await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .orderByDescending((r) => r.created_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { offset, limit },
+                  )
+                : await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .orderBy((r) => r.created_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { offset, limit },
+                  )
+              : sortOrder === "desc"
+                ? await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .orderByDescending((r) => r.completed_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { offset, limit },
+                  )
+                : await executeSelect(
+                    ctx.db,
+                    schema,
+                    (q, p) =>
+                      q
+                        .from("run")
+                        .orderBy((r) => r.completed_at)
+                        .skip(p.offset)
+                        .take(p.limit),
+                    { offset, limit },
+                  );
 
     const data = rows.map(mapRunFromDb);
 

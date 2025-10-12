@@ -12,7 +12,6 @@ export type {
   RunDbRow,
   StageDbRow,
   StepDbRow,
-  ArtifactDbRow,
   RunStatus,
   StageStatus,
   StepStatus,

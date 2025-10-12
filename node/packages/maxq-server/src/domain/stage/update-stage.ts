@@ -1,6 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
-import type { StageDbRow } from "@codespin/maxq-db";
+import { schema } from "@codespin/maxq-db";
+import { executeUpdate, executeSelect } from "@webpods/tinqer-sql-pg-promise";
 import type { DataContext } from "../data-context.js";
 import type { Stage, UpdateStageInput } from "../../types.js";
 import { mapStageFromDb } from "../../mappers.js";
@@ -21,30 +22,47 @@ export async function updateStage(
   input: UpdateStageInput,
 ): Promise<Result<Stage, Error>> {
   try {
-    const updates: string[] = [];
-    const params: Record<string, unknown> = { id };
-
-    if (input.status !== undefined) {
-      updates.push("status = ${status}");
-      params.status = input.status;
-    }
-    if (input.completedAt !== undefined) {
-      updates.push("completed_at = ${completedAt}");
-      params.completedAt = input.completedAt;
-    }
-
-    if (updates.length === 0) {
+    if (Object.keys(input).length === 0) {
       return failure(new Error("No fields to update"));
     }
 
-    const updateQuery = `
-      UPDATE stage
-      SET ${updates.join(", ")}
-      WHERE id = \${id}
-      RETURNING *
-    `;
+    // Fetch current row to get existing values
+    const existingRows = await executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("stage").where((s) => s.id === p.id),
+      { id },
+    );
 
-    const row = await ctx.db.one<StageDbRow>(updateQuery, params);
+    const existing = existingRows[0];
+    if (!existing) {
+      return failure(new Error("Stage not found"));
+    }
+
+    // Update with object literal - all values passed via params
+    const rows = await executeUpdate(
+      ctx.db,
+      schema,
+      (q, p) =>
+        q
+          .update("stage")
+          .set({
+            status: p.status,
+            completed_at: p.completedAt,
+          })
+          .where((s) => s.id === p.id)
+          .returning((s) => s),
+      {
+        id,
+        status: input.status ?? existing.status,
+        completedAt: input.completedAt ?? existing.completed_at,
+      },
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return failure(new Error("Stage not found after update"));
+    }
 
     logger.debug("Updated stage", { id, updates: Object.keys(input) });
 

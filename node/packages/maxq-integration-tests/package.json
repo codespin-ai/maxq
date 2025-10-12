@@ -1,11 +1,13 @@
 {
   "name": "@codespin/maxq-integration-tests",
-  "version": "0.0.4",
+  "version": "0.0.6",
   "description": "Integration tests for MaxQ",
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "mocha",
+    "build": "tsc --noEmit",
+    "test:build": "tsc --noEmit",
+    "test": "LOG_LEVEL=error mocha",
     "test:grep": "mocha --grep",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix"

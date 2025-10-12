@@ -37,13 +37,14 @@ MaxQ is a lightweight DAG-based workflow orchestration engine designed for shell
 
 ### 1.3 Key Features
 
-- DAG-based workflow execution
-- Parallel step execution with sequence numbers
-- Artifact storage for data passing between steps
+- DAG-based workflow execution with step dependencies
+- Parallel step execution (flow generates multiple step IDs)
+- Field-based data passing between steps
 - Stage-based orchestration with callback pattern
 - Retry logic for failed steps
 - Filesystem-based flow discovery
 - Simple HTTP/JSON protocol
+- Flow-controlled step identification
 
 ---
 
@@ -110,11 +111,10 @@ A **step** is an individual unit of work within a stage.
 **Characteristics:**
 
 - Defined as a shell script in `FLOWS_ROOT/{flow}/steps/{step_name}/step.sh`
-- Has dependencies on other steps (DAG)
-- Can have multiple instances (for parallel execution)
-- Each instance has a sequence number (0, 1, 2, ...)
+- Has a unique ID supplied by the flow (e.g., "fetch-news", "scraper-1")
+- Has dependencies on other steps via step IDs (DAG)
 - Can retry on failure (configurable max retries)
-- Produces artifacts for downstream consumption
+- Posts fields containing results when execution completes
 
 **Status Values:**
 
@@ -124,42 +124,23 @@ A **step** is an individual unit of work within a stage.
 - `failed`: Execution failed after all retries
 - `cancelled`: Manually cancelled
 
-### 2.5 Sequence
+**Step ID vs Step Name:**
 
-A **sequence** number identifies parallel instances of the same step.
+- **ID**: Unique identifier supplied by flow (e.g., "scraper-1", "scraper-2") - must be unique within run
+- **Name**: Script directory name (e.g., "scraper", "scraper") - multiple steps can share the same name
 
-**Characteristics:**
+**Example for parallel processing:**
 
-- Integer starting from 0
-- Assigned automatically by MaxQ when `instances > 1`
-- Unique within a step name and run
-- Used to namespace artifacts
-
-**Example:**
-
-```
-instances: 4
-→ Creates steps with sequences: 0, 1, 2, 3
-```
-
-### 2.6 Artifact
-
-An **artifact** is data produced by a step and stored in MaxQ for downstream consumption.
-
-**Characteristics:**
-
-- Namespaced by step name and sequence: `step_name[sequence]/artifact_name`
-- Stored as JSON in the database
-- Queryable by downstream steps
-- Immutable once created
-- Supports tags for categorization
-
-**Example:**
-
-```
-Step: process_page (sequence 0)
-Artifact name: "page_data"
-Full path: "process_page[0]/page_data"
+```json
+// Flow generates multiple steps with same name but different IDs
+{
+  "steps": [
+    { "id": "scraper-0", "name": "scraper" },
+    { "id": "scraper-1", "name": "scraper" },
+    { "id": "scraper-2", "name": "scraper" }
+  ]
+}
+// All three execute: FLOWS_ROOT/my_flow/steps/scraper/step.sh
 ```
 
 ---
@@ -188,20 +169,30 @@ Full path: "process_page[0]/page_data"
 ### 3.2 Communication Flow
 
 1. **User triggers flow**: `POST /api/v1/flows/{flowName}/runs`
-2. **MaxQ creates run**: Stores in database
-3. **MaxQ spawns flow.sh**: With environment variables
-4. **Flow schedules stage**: `POST /api/v1/runs/{runId}/steps`
-5. **MaxQ spawns step.sh**: For each step (respecting dependencies)
-6. **Steps execute**: Store artifacts via API
-7. **Stage completes**: All steps in stage finish
-8. **MaxQ calls flow.sh again**: With completed stage name
-9. **Repeat 4-8**: Until flow marks a stage as `final`
+2. **MaxQ creates run**: Stores in database with status `pending`
+3. **MaxQ spawns flow.sh**: With environment variables (including empty `MAXQ_COMPLETED_STAGE`)
+4. **Flow schedules stage**: `POST /api/v1/runs/{runId}/steps` with step definitions
+   - Each step has unique `id` (flow-supplied) and `name` (script directory)
+   - Example: `{"id": "scraper-1", "name": "scraper"}`, `{"id": "scraper-2", "name": "scraper"}`
+5. **MaxQ validates and creates steps**:
+   - Validates step IDs (alphanumeric + hyphens + underscores)
+   - Checks ID uniqueness within run
+   - Creates step records
+6. **MaxQ spawns step.sh**: For each step (respecting `dependsOn` DAG)
+   - Passes `MAXQ_STEP_ID` (unique ID) and `MAXQ_STEP_NAME` (script name)
+   - Resolves script: `{flowsRoot}/{flowName}/steps/{name}/step.sh`
+7. **Steps execute and post fields**: `POST /api/v1/runs/{runId}/steps/{stepId}/fields` when complete
+   - Fields contain all step results as arbitrary JSON
+8. **Stage completes**: All steps in stage have posted fields (or failed)
+9. **If stage not final**: MaxQ calls flow.sh again with `MAXQ_COMPLETED_STAGE` set
+10. **Repeat 4-9**: Until flow marks a stage as `final: true`
+11. **Final stage completes**: Run automatically marked as `completed`
 
 ### 3.3 Data Storage
 
 - **PostgreSQL**: Single source of truth for all state
 - **No Queue System**: MaxQ directly spawns processes
-- **No External Storage**: Artifacts stored in database (JSON)
+- **No External Storage**: All step data stored as fields in database (JSONB)
 
 ---
 
@@ -294,34 +285,64 @@ Configure via: `MAXQ_WATCH_FLOWS=true`
 3. MaxQ calls flow.sh (MAXQ_COMPLETED_STAGE="")
    ↓
    Flow schedules stage "data-fetch" (final: false)
+   POST /runs/{runId}/steps
+   {
+     "stage": "data-fetch",
+     "final": false,
+     "steps": [
+       {"id": "fetch-news", "name": "fetch_news", "dependsOn": [], ...},
+       {"id": "fetch-prices", "name": "fetch_prices", "dependsOn": [], ...}
+     ]
+   }
 
-4. MaxQ creates steps in database
+4. MaxQ validates step IDs and creates step records
    ↓
-   MaxQ spawns step.sh processes (respecting dependencies)
+   MaxQ spawns step.sh processes (respecting dependsOn DAG)
+   → Spawns: steps/fetch_news/step.sh with MAXQ_STEP_ID=fetch-news
+   → Spawns: steps/fetch_prices/step.sh with MAXQ_STEP_ID=fetch-prices
 
-5. Steps execute, store artifacts
+5. Steps execute and post fields when complete
+   POST /runs/{runId}/steps/fetch-news/fields
+   {"fields": {"articles": [...], "count": 42}}
+
+   POST /runs/{runId}/steps/fetch-prices/fields
+   {"fields": {"prices": [...], "count": 100}}
    ↓
-   All steps in "data-fetch" complete
+   All steps in "data-fetch" have posted fields
 
 6. MaxQ calls flow.sh (MAXQ_COMPLETED_STAGE="data-fetch")
    ↓
-   Flow schedules stage "analysis" (final: false)
+   Flow schedules stage "analysis" (final: false) with 4 parallel analyzers
+   {
+     "stage": "analysis",
+     "final": false,
+     "steps": [
+       {"id": "analyzer-0", "name": "analyzer", "dependsOn": ["fetch-news"], ...},
+       {"id": "analyzer-1", "name": "analyzer", "dependsOn": ["fetch-news"], ...},
+       {"id": "analyzer-2", "name": "analyzer", "dependsOn": ["fetch-news"], ...},
+       {"id": "analyzer-3", "name": "analyzer", "dependsOn": ["fetch-news"], ...}
+     ]
+   }
 
-7. MaxQ spawns next batch of steps
+7. MaxQ spawns analyzer steps (all execute steps/analyzer/step.sh)
    ↓
-   Steps execute
+   Steps query fields: GET /runs/{runId}/fields?stepId=fetch-news
+   Steps execute and post their own fields
 
-8. All steps in "analysis" complete
+8. All analyzer steps complete
    ↓
    MaxQ calls flow.sh (MAXQ_COMPLETED_STAGE="analysis")
    ↓
    Flow schedules stage "reporting" (final: true)
 
-9. MaxQ spawns final steps
+9. MaxQ spawns reporting step
    ↓
-   All steps in "reporting" complete
+   Step queries all analyzer fields: GET /runs/{runId}/fields?stepId=analyzer-0,analyzer-1,...
+   Step generates report and posts fields
+   ↓
+   Final stage completes
 
-10. MaxQ marks run as completed (no more callbacks - final: true)
+10. MaxQ marks run as completed automatically (no callback for final stage)
 ```
 
 ### 5.2 Stage Completion
@@ -340,26 +361,42 @@ When a stage completes:
 
 **Dependency Resolution:**
 
-- MaxQ builds a DAG from `dependsOn` relationships
+- MaxQ builds a DAG from `dependsOn` relationships (using step IDs)
 - Steps without dependencies start immediately
 - Dependent steps wait for all dependencies to complete
 
 **Parallel Execution:**
 
 - Steps with no dependencies execute in parallel
-- Steps with `instances > 1` execute in parallel (all sequences)
+- Flow generates multiple step IDs to enable parallel execution
+- All steps with same `name` execute the same script
 
 **Example:**
 
 ```json
 {
   "steps": [
-    { "name": "fetch_news", "dependsOn": [], "instances": 1 },
-    { "name": "fetch_prices", "dependsOn": [], "instances": 1 },
+    { "id": "fetch-news", "name": "fetch_news", "dependsOn": [] },
+    { "id": "fetch-prices", "name": "fetch_prices", "dependsOn": [] },
     {
+      "id": "analyze-0",
       "name": "analyze",
-      "dependsOn": ["fetch_news", "fetch_prices"],
-      "instances": 4
+      "dependsOn": ["fetch-news", "fetch-prices"]
+    },
+    {
+      "id": "analyze-1",
+      "name": "analyze",
+      "dependsOn": ["fetch-news", "fetch-prices"]
+    },
+    {
+      "id": "analyze-2",
+      "name": "analyze",
+      "dependsOn": ["fetch-news", "fetch-prices"]
+    },
+    {
+      "id": "analyze-3",
+      "name": "analyze",
+      "dependsOn": ["fetch-news", "fetch-prices"]
     }
   ]
 }
@@ -367,8 +404,10 @@ When a stage completes:
 
 Execution order:
 
-1. `fetch_news` and `fetch_prices` start in parallel
-2. When both complete, `analyze[0]`, `analyze[1]`, `analyze[2]`, `analyze[3]` start in parallel
+1. `fetch-news` and `fetch-prices` start in parallel
+2. When both complete, all 4 analyze steps start in parallel
+3. All execute the same script: `steps/analyze/step.sh`
+4. Each receives unique `MAXQ_STEP_ID` (analyze-0, analyze-1, analyze-2, analyze-3)
 
 ### 5.4 Process Spawning
 
@@ -381,17 +420,35 @@ MaxQ spawns shell processes with:
 - Standard output: captured and logged
 - Standard error: captured and logged
 
-### 5.5 Exit Codes
+### 5.5 Completion Mechanism
+
+**Primary Completion Signal: HTTP POST Calls**
+
+Steps signal completion by making HTTP POST calls to MaxQ:
+
+- **Steps**: POST to `/runs/{runId}/steps/{stepId}/fields` when execution completes
+
+Flows do not need to signal completion. When all steps in a stage marked with `final: true` complete, the run is automatically marked as completed by MaxQ.
+
+**The HTTP POST call itself IS the completion notification.** This is the primary mechanism for signaling that execution has finished.
+
+**Exit Codes (Secondary)**
+
+Exit codes are also captured for debugging purposes:
 
 **Flow exit codes:**
 
-- `0`: Success (stage scheduled or workflow logic completed)
-- `Non-zero`: Failure (MaxQ marks run as failed)
+- `0`: Success
+- `Non-zero`: Failure (MaxQ marks run as failed if no result POST was made)
 
 **Step exit codes:**
 
-- `0`: Success (step completed)
-- `Non-zero`: Failure (step failed, may retry)
+- `0`: Success
+- `Non-zero`: Failure (step failed, may retry if no result POST was made)
+
+**stdout/stderr (Debugging Only)**
+
+Standard output and standard error streams are captured and stored for debugging purposes but are not used for primary data passing or completion signaling. All data passing should use the HTTP API (artifacts, result POSTs).
 
 ---
 
@@ -589,9 +646,9 @@ Called by flow.sh to schedule a stage with steps. This is the core API flows use
   "final": false,
   "steps": [
     {
+      "id": "fetch-news",
       "name": "fetch_news",
       "dependsOn": [],
-      "instances": 1,
       "maxRetries": 3,
       "env": {
         "SOURCE": "reuters",
@@ -599,9 +656,9 @@ Called by flow.sh to schedule a stage with steps. This is the core API flows use
       }
     },
     {
+      "id": "fetch-prices",
       "name": "fetch_prices",
       "dependsOn": [],
-      "instances": 1,
       "maxRetries": 3,
       "env": {
         "SYMBOL": "AAPL"
@@ -611,15 +668,67 @@ Called by flow.sh to schedule a stage with steps. This is the core API flows use
 }
 ```
 
+**Parallel Execution Example:**
+
+To run 4 parallel analyzers, the flow generates 4 steps with unique IDs:
+
+```json
+{
+  "stage": "analysis",
+  "final": false,
+  "steps": [
+    {
+      "id": "analyzer-0",
+      "name": "analyzer",
+      "dependsOn": ["fetch-news"],
+      "maxRetries": 2,
+      "env": { "SHARD": "0" }
+    },
+    {
+      "id": "analyzer-1",
+      "name": "analyzer",
+      "dependsOn": ["fetch-news"],
+      "maxRetries": 2,
+      "env": { "SHARD": "1" }
+    },
+    {
+      "id": "analyzer-2",
+      "name": "analyzer",
+      "dependsOn": ["fetch-news"],
+      "maxRetries": 2,
+      "env": { "SHARD": "2" }
+    },
+    {
+      "id": "analyzer-3",
+      "name": "analyzer",
+      "dependsOn": ["fetch-news"],
+      "maxRetries": 2,
+      "env": { "SHARD": "3" }
+    }
+  ]
+}
+```
+
+All 4 steps execute the same script `steps/analyzer/step.sh`, but each receives a unique `MAXQ_STEP_ID`.
+
 **Field Descriptions:**
 
 - `stage` (required, string): Name of this stage
 - `final` (required, boolean): If true, no callback after this stage completes
 - `steps` (required, array): Array of step definitions
-  - `name` (required, string): Step name (must exist in filesystem)
-  - `dependsOn` (optional, array): Array of step names this step depends on
-  - `instances` (required, number): Number of parallel instances (1+)
-  - `maxRetries` (required, number): Max retry attempts (0+)
+  - `id` (required, string): Unique step identifier supplied by flow
+    - **Validation**: Must match regex `^[a-zA-Z0-9_-]+$` (alphanumeric, hyphens, underscores only)
+    - **Uniqueness**: Must be unique within the run (across all stages)
+    - **Examples**: "fetch-news", "analyzer-0", "scraper-batch-1"
+    - MaxQ MUST reject with 400 Bad Request if validation fails
+  - `name` (required, string): Step script directory name (must exist in filesystem)
+    - Multiple steps can share the same name (parallel execution)
+    - Resolves to: `{flowsRoot}/{flowName}/steps/{name}/step.sh`
+  - `dependsOn` (optional, array): Array of step IDs this step depends on
+    - References step IDs, not step names
+    - Dependencies are within the same stage only
+    - Cross-stage dependencies are implicit (all previous stages complete before current stage)
+  - `maxRetries` (required, number): Max retry attempts on failure (0+)
   - `env` (optional, object): Environment variables passed to step.sh
 
 **Response:** `201 Created`
@@ -630,18 +739,58 @@ Called by flow.sh to schedule a stage with steps. This is the core API flows use
   "scheduled": 2,
   "steps": [
     {
-      "id": "step-uuid-1",
+      "id": "fetch-news",
       "name": "fetch_news",
-      "sequence": 0,
       "status": "pending"
     },
     {
-      "id": "step-uuid-2",
+      "id": "fetch-prices",
       "name": "fetch_prices",
-      "sequence": 0,
       "status": "pending"
     }
   ]
+}
+```
+
+**Error Response:** `400 Bad Request`
+
+Invalid step ID format:
+
+```json
+{
+  "error": "Invalid step ID",
+  "code": "INVALID_STEP_ID",
+  "details": {
+    "stepId": "fetch news!",
+    "reason": "Step ID must match pattern: ^[a-zA-Z0-9_-]+$"
+  }
+}
+```
+
+Duplicate step ID:
+
+```json
+{
+  "error": "Duplicate step ID",
+  "code": "DUPLICATE_STEP_ID",
+  "details": {
+    "stepId": "fetch-news",
+    "reason": "Step ID already exists in this run"
+  }
+}
+```
+
+Step script not found:
+
+```json
+{
+  "error": "Step not found",
+  "code": "STEP_NOT_FOUND",
+  "details": {
+    "name": "fetch_news",
+    "path": "/flows/my_flow/steps/fetch_news/step.sh",
+    "reason": "Step script does not exist or is not executable"
+  }
 }
 ```
 
@@ -762,158 +911,140 @@ Called by MaxQ executor to update step status. May also be called by steps thems
 
 ---
 
-#### 6.4.9 Store Artifact
+#### 6.4.9 Post Step Fields
 
 ```
-POST /runs/{runId}/artifacts
+POST /runs/{runId}/steps/{stepId}/fields
 ```
 
-Called by steps to store artifacts for downstream consumption.
+Called by step.sh to post fields and signal completion. **The act of making this HTTP call signals that step execution has finished.** This is the primary completion mechanism for steps.
+
+The `stepId` in the URL is the identifier supplied by the flow when scheduling the stage (see 6.4.5).
 
 **Request Body:**
 
 ```json
 {
-  "stepId": "step-uuid-1",
-  "stepName": "fetch_news",
-  "sequence": 0,
-  "name": "raw_data",
-  "value": {
-    "articles": [{ "title": "Market Report", "content": "..." }]
-  },
-  "tags": ["news", "reuters"],
-  "metadata": {
-    "source": "reuters-api",
-    "timestamp": 1704067210000
+  "fields": {
+    "status": "completed",
+    "articles_fetched": 42,
+    "raw_data": {
+      "articles": [...]
+    },
+    "processing_time_ms": 1234,
+    "metadata": {
+      "source": "reuters-api"
+    }
   }
 }
 ```
 
 **Field Descriptions:**
 
-- `stepId` (required, string): ID of the step creating this artifact
-- `stepName` (required, string): Name of the step
-- `sequence` (required, number): Sequence number of the step instance
-- `name` (required, string): Artifact name
-- `value` (required, any): Artifact data (JSON)
-- `tags` (optional, array): Tags for categorization
-- `metadata` (optional, object): Additional metadata
+- `fields` (required, object): Arbitrary key-value pairs storing step results. Steps can post any data structure here. By convention, include a `status` field with value `completed` or `failed`.
 
-**Response:** `201 Created`
+**Response:** `200 OK`
 
 ```json
 {
-  "id": "artifact-uuid-1",
+  "id": "fetch-news",
   "runId": "run-uuid-123",
-  "stepName": "fetch_news",
-  "sequence": 0,
-  "name": "raw_data",
-  "fullPath": "fetch_news[0]/raw_data",
-  "value": { "articles": [...] },
-  "tags": ["news", "reuters"],
-  "metadata": { "source": "reuters-api" },
-  "createdAt": 1704067210000
+  "fields": {
+    "status": "completed",
+    "articles_fetched": 42,
+    "raw_data": {...},
+    "processing_time_ms": 1234,
+    "metadata": {...}
+  },
+  "completedAt": 1704067210000
 }
 ```
 
+**Notes:**
+
+- Steps SHOULD call this endpoint when execution completes (success or failure)
+- If a step process exits without calling this endpoint, MaxQ will mark it as failed based on exit code
+- All fields are stored in the database and can be queried by downstream steps via "Query Step Results" (6.4.10)
+- No predefined schema - steps can post any fields they need
+- By convention, use a `status` field with value `completed` or `failed` to indicate success/failure
+- The `stepId` in the URL must match the ID supplied by the flow when scheduling the stage
+
 ---
 
-#### 6.4.10 Query Artifacts
+#### 6.4.10 Query Step Fields
 
 ```
-GET /runs/{runId}/artifacts
+GET /runs/{runId}/fields
 ```
 
-Query artifacts with flexible filtering.
+Query fields posted by steps. This is how steps retrieve data from upstream dependencies.
 
 **Query Parameters:**
 
-- `stepName` (optional): Filter by step name
-- `sequence` (optional): Filter by sequence number
-- `name` (optional): Filter by artifact name (exact match)
-- `namePrefix` (optional): Filter by artifact name prefix
-- `tags` (optional): Comma-separated tags (any match)
-- `limit` (optional): Max results (default: 100)
-- `offset` (optional): Pagination offset
-- `sortBy` (optional): Sort field (default: `createdAt`)
-- `sortOrder` (optional): `asc` or `desc` (default: `desc`)
+- `stepId` (optional): Filter by specific step ID (exact match)
+- `fieldName` (optional): Filter results to only include specific field name
 
 **Response:**
 
 ```json
 {
-  "artifacts": [
+  "fields": [
     {
-      "id": "artifact-uuid-1",
-      "runId": "run-uuid-123",
+      "stepId": "fetch-news",
       "stepName": "fetch_news",
-      "sequence": 0,
-      "name": "raw_data",
-      "fullPath": "fetch_news[0]/raw_data",
-      "value": { "articles": [...] },
-      "tags": ["news", "reuters"],
-      "createdAt": 1704067210000
+      "stageId": "stage-uuid-1",
+      "stageName": "data-fetch",
+      "status": "completed",
+      "fields": {
+        "articles_fetched": 42,
+        "raw_data": {...},
+        "processing_time_ms": 1234
+      },
+      "completedAt": 1704067210000
     },
     {
-      "id": "artifact-uuid-2",
-      "stepName": "process_page",
-      "sequence": 0,
-      "name": "page_data",
-      "fullPath": "process_page[0]/page_data",
-      "value": { "processed": true },
-      "tags": ["processed"],
-      "createdAt": 1704067220000
+      "stepId": "analyzer-0",
+      "stepName": "analyzer",
+      "stageId": "stage-uuid-2",
+      "stageName": "analysis",
+      "status": "completed",
+      "fields": {
+        "sentiment_score": 0.75,
+        "analyzed_articles": 10
+      },
+      "completedAt": 1704067220000
     }
-  ],
-  "pagination": {
-    "total": 15,
-    "limit": 100,
-    "offset": 0
-  }
+  ]
 }
 ```
 
 **Example Queries:**
 
 ```bash
-# Get all artifacts from fetch_news step
-GET /runs/{runId}/artifacts?stepName=fetch_news
+# Get fields from a specific step
+GET /runs/{runId}/fields?stepId=fetch-news
 
-# Get artifacts from process_page sequence 2
-GET /runs/{runId}/artifacts?stepName=process_page&sequence=2
+# Get fields containing specific field name (filters response to include only that field)
+GET /runs/{runId}/fields?fieldName=sentiment_score
+# Returns: [{"stepId": "analyzer-0", "fields": {"sentiment_score": 0.75}}, ...]
 
-# Get all "page_data" artifacts across all sequences
-GET /runs/{runId}/artifacts?name=page_data
-
-# Get artifacts with specific tags
-GET /runs/{runId}/artifacts?tags=processed,validated
+# Get all fields (no filters)
+GET /runs/{runId}/fields
 ```
 
----
+**Usage in Steps:**
 
-#### 6.4.11 Get Artifact
+```bash
+#!/bin/bash
+# Get upstream step data
+NEWS=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/fields?stepId=fetch-news" | \
+  jq -r '.fields[0].fields.raw_data')
 
-```
-GET /runs/{runId}/artifacts/{artifactId}
-```
-
-Retrieves a specific artifact by ID.
-
-**Response:**
-
-```json
-{
-  "id": "artifact-uuid-1",
-  "runId": "run-uuid-123",
-  "stepName": "fetch_news",
-  "sequence": 0,
-  "name": "raw_data",
-  "fullPath": "fetch_news[0]/raw_data",
-  "value": { "articles": [...] },
-  "tags": ["news", "reuters"],
-  "metadata": { "source": "reuters-api" },
-  "createdAt": 1704067210000
-}
+# Process the data...
+# Post results
+curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
+  -H "Content-Type: application/json" \
+  -d "{\"fields\": {\"status\": \"completed\", \"result\": ...}}"
 ```
 
 ---
@@ -999,10 +1130,9 @@ When MaxQ spawns `step.sh`, it provides these environment variables:
 
 ```bash
 # Required
-MAXQ_RUN_ID=run-uuid-123              # Run identifier
-MAXQ_STEP_ID=step-uuid-456            # Unique step identifier
-MAXQ_STEP_NAME=fetch_news             # Step name
-MAXQ_STEP_SEQUENCE=0                  # Sequence number for this instance
+MAXQ_RUN_ID=run-uuid-123              # Run identifier (UUID)
+MAXQ_STEP_ID=fetch-news               # Unique step identifier (supplied by flow)
+MAXQ_STEP_NAME=fetch_news             # Step script directory name
 MAXQ_FLOW_NAME=market_analysis        # Name of the flow
 MAXQ_STAGE=data-fetch                 # Stage this step belongs to
 MAXQ_API=http://localhost:3000/api/v1 # MaxQ API base URL
@@ -1012,18 +1142,47 @@ SOURCE=reuters                        # User-defined env vars
 API_KEY=secret123                     # from "env" field in stage scheduling
 ```
 
-**Example for parallel instance:**
+**Example for parallel execution:**
+
+When a flow schedules 3 parallel steps with the same script:
+
+```json
+{
+  "steps": [
+    { "id": "scraper-0", "name": "scraper", "env": { "SHARD": "0" } },
+    { "id": "scraper-1", "name": "scraper", "env": { "SHARD": "1" } },
+    { "id": "scraper-2", "name": "scraper", "env": { "SHARD": "2" } }
+  ]
+}
+```
+
+Each receives:
 
 ```bash
 # Instance 0
-MAXQ_STEP_SEQUENCE=0
+MAXQ_STEP_ID=scraper-0
+MAXQ_STEP_NAME=scraper
+SHARD=0
 
 # Instance 1
-MAXQ_STEP_SEQUENCE=1
+MAXQ_STEP_ID=scraper-1
+MAXQ_STEP_NAME=scraper
+SHARD=1
 
 # Instance 2
-MAXQ_STEP_SEQUENCE=2
+MAXQ_STEP_ID=scraper-2
+MAXQ_STEP_NAME=scraper
+SHARD=2
 ```
+
+All three execute the same script: `steps/scraper/step.sh`
+
+**Key Points:**
+
+- `MAXQ_STEP_ID`: Unique identifier supplied by flow (e.g., "scraper-0", "scraper-1")
+- `MAXQ_STEP_NAME`: Script directory name (e.g., "scraper")
+- Multiple steps can share the same `MAXQ_STEP_NAME` but have unique `MAXQ_STEP_ID`
+- Steps use `MAXQ_STEP_ID` when posting fields: `POST /runs/{runId}/steps/{stepId}/fields`
 
 ---
 
@@ -1081,60 +1240,42 @@ Stores individual step instances.
 
 ```sql
 CREATE TABLE step (
-  id                TEXT PRIMARY KEY,        -- UUID
+  id                TEXT PRIMARY KEY,        -- Unique step ID supplied by flow (e.g., "fetch-news", "scraper-0")
   run_id            TEXT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
   stage_id          TEXT NOT NULL REFERENCES stage(id) ON DELETE CASCADE,
-  name              TEXT NOT NULL,           -- Step name
-  sequence          INTEGER NOT NULL,        -- Instance sequence (0, 1, 2, ...)
+  name              TEXT NOT NULL,           -- Step script directory name (e.g., "fetch_news", "scraper")
   status            TEXT NOT NULL,           -- pending, running, completed, failed, cancelled
-  depends_on        JSONB NOT NULL,          -- Array of step names: ["step1", "step2"]
+  depends_on        JSONB NOT NULL,          -- Array of step IDs: ["fetch-news", "fetch-prices"]
   retry_count       INTEGER NOT NULL DEFAULT 0,
   max_retries       INTEGER NOT NULL,
   env               JSONB,                   -- Environment variables
-  output            JSONB,                   -- Step output data
+  fields            JSONB,                   -- Step fields posted via POST /runs/{runId}/steps/{stepId}/fields
   error             JSONB,                   -- Error details
   created_at        BIGINT NOT NULL,
   started_at        BIGINT,
   completed_at      BIGINT,
-  duration_ms       BIGINT
+  duration_ms       BIGINT,
+  stdout            TEXT,                    -- Captured stdout from step process
+  stderr            TEXT                     -- Captured stderr from step process
 );
 
 CREATE INDEX idx_step_run_id ON step(run_id);
 CREATE INDEX idx_step_stage_id ON step(stage_id);
 CREATE INDEX idx_step_status ON step(status);
 CREATE INDEX idx_step_name ON step(run_id, name);
-CREATE UNIQUE INDEX idx_step_run_name_seq ON step(run_id, name, sequence);
+CREATE UNIQUE INDEX idx_step_id ON step(run_id, id);  -- Enforce ID uniqueness within run
 ```
 
-### 8.4 `artifact` Table
+**Key Points:**
 
-Stores artifacts produced by steps.
+- `id`: Flow-supplied unique identifier (e.g., "fetch-news", "scraper-0", "scraper-1")
+- `name`: Script directory name - multiple steps can share the same name
+- `depends_on`: Array of step IDs, not names
+- `fields`: Arbitrary JSON data posted by steps
+- No `sequence` column - flows generate explicit IDs
+- Unique constraint on (run_id, id) ensures no duplicate IDs
 
-```sql
-CREATE TABLE artifact (
-  id                TEXT PRIMARY KEY,        -- UUID
-  run_id            TEXT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
-  step_id           TEXT NOT NULL REFERENCES step(id) ON DELETE CASCADE,
-  step_name         TEXT NOT NULL,           -- Denormalized for queries
-  sequence          INTEGER NOT NULL,        -- Denormalized for queries
-  name              TEXT NOT NULL,           -- Artifact name
-  full_path         TEXT NOT NULL,           -- step_name[sequence]/name
-  value             JSONB NOT NULL,          -- Artifact data
-  tags              TEXT[],                  -- Tags for filtering
-  metadata          JSONB,                   -- Additional metadata
-  created_at        BIGINT NOT NULL
-);
-
-CREATE INDEX idx_artifact_run_id ON artifact(run_id);
-CREATE INDEX idx_artifact_step_id ON artifact(step_id);
-CREATE INDEX idx_artifact_step_name ON artifact(run_id, step_name);
-CREATE INDEX idx_artifact_name ON artifact(run_id, name);
-CREATE INDEX idx_artifact_full_path ON artifact(run_id, full_path);
-CREATE INDEX idx_artifact_tags ON artifact USING GIN(tags);
-CREATE INDEX idx_artifact_created_at ON artifact(created_at DESC);
-```
-
-### 8.5 `log` Table (Optional)
+### 8.4 `log` Table (Optional)
 
 Stores execution logs.
 
@@ -1192,9 +1333,9 @@ if [ -z "$MAXQ_COMPLETED_STAGE" ]; then
     "final": false,
     "steps": [
       {
+        "id": "greet-step",
         "name": "greet",
         "dependsOn": [],
-        "instances": 1,
         "maxRetries": 0,
         "env": { "NAME": "World" }
       }
@@ -1208,9 +1349,9 @@ elif [ "$MAXQ_COMPLETED_STAGE" = "greeting" ]; then
     "final": true,
     "steps": [
       {
+        "id": "goodbye-step",
         "name": "goodbye",
-        "dependsOn": ["greet"],
-        "instances": 1,
+        "dependsOn": [],
         "maxRetries": 0,
         "env": {}
       }
@@ -1227,15 +1368,15 @@ set -e
 
 echo "Hello, $NAME!"
 
-# Store artifact
-curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
+# Post fields to signal completion
+curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
-    \"stepId\": \"$MAXQ_STEP_ID\",
-    \"stepName\": \"$MAXQ_STEP_NAME\",
-    \"sequence\": $MAXQ_STEP_SEQUENCE,
-    \"name\": \"greeting\",
-    \"value\": { \"message\": \"Hello, $NAME!\" }
+    \"fields\": {
+      \"status\": \"completed\",
+      \"greeting_message\": \"Hello, $NAME!\",
+      \"timestamp\": $(date +%s)
+    }
   }"
 ```
 
@@ -1245,12 +1386,23 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 #!/bin/bash
 set -e
 
-# Fetch greeting artifact
-GREETING=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts?stepName=greet&name=greeting" | \
-  jq -r '.artifacts[0].value.message')
+# Fetch greeting from previous step
+GREETING=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/steps?id=greet-step" | \
+  jq -r '.steps[0].fields.greeting_message')
 
 echo "Previous greeting was: $GREETING"
 echo "Goodbye!"
+
+# Post fields to signal completion
+curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"fields\": {
+      \"status\": \"completed\",
+      \"farewell_message\": \"Goodbye!\",
+      \"previous_greeting\": \"$GREETING\"
+    }
+  }"
 ```
 
 ---
@@ -1286,9 +1438,9 @@ if [ -z "$MAXQ_COMPLETED_STAGE" ]; then
       "stage": "fetch",
       "final": false,
       "steps": [{
+        "id": "fetch-urls",
         "name": "fetch_urls",
         "dependsOn": [],
-        "instances": 1,
         "maxRetries": 3,
         "env": { "SOURCE": "https://example.com/sitemap.xml" }
       }]
@@ -1296,18 +1448,24 @@ if [ -z "$MAXQ_COMPLETED_STAGE" ]; then
 
 elif [ "$MAXQ_COMPLETED_STAGE" = "fetch" ]; then
   # Stage 2: Scrape 10 pages in parallel
+  # Flow generates 10 steps with unique IDs
   curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \
     -H "Content-Type: application/json" \
     -d '{
       "stage": "scrape",
       "final": false,
-      "steps": [{
-        "name": "scrape_page",
-        "dependsOn": ["fetch_urls"],
-        "instances": 10,
-        "maxRetries": 2,
-        "env": { "TIMEOUT": "30" }
-      }]
+      "steps": [
+        {"id": "scrape-0", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "0"}},
+        {"id": "scrape-1", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "1"}},
+        {"id": "scrape-2", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "2"}},
+        {"id": "scrape-3", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "3"}},
+        {"id": "scrape-4", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "4"}},
+        {"id": "scrape-5", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "5"}},
+        {"id": "scrape-6", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "6"}},
+        {"id": "scrape-7", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "7"}},
+        {"id": "scrape-8", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "8"}},
+        {"id": "scrape-9", "name": "scrape_page", "dependsOn": ["fetch-urls"], "maxRetries": 2, "env": {"INDEX": "9"}}
+      ]
     }'
 
 elif [ "$MAXQ_COMPLETED_STAGE" = "scrape" ]; then
@@ -1318,9 +1476,9 @@ elif [ "$MAXQ_COMPLETED_STAGE" = "scrape" ]; then
       "stage": "aggregate",
       "final": true,
       "steps": [{
+        "id": "aggregate-results",
         "name": "aggregate",
-        "dependsOn": ["scrape_page"],
-        "instances": 1,
+        "dependsOn": [],
         "maxRetries": 1,
         "env": {}
       }]
@@ -1336,16 +1494,17 @@ set -e
 
 # Fetch sitemap and extract URLs
 URLS=$(curl "$SOURCE" | grep -oP 'https://[^<]+' | head -10)
+URLS_JSON=$(echo "$URLS" | jq -R -s -c 'split("\n") | map(select(length > 0))')
 
-# Store as artifact
-curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
+# Post fields with URL list
+curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
-    \"stepId\": \"$MAXQ_STEP_ID\",
-    \"stepName\": \"$MAXQ_STEP_NAME\",
-    \"sequence\": $MAXQ_STEP_SEQUENCE,
-    \"name\": \"urls\",
-    \"value\": $(echo "$URLS" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+    \"fields\": {
+      \"status\": \"completed\",
+      \"urls\": $URLS_JSON,
+      \"count\": $(echo "$URLS_JSON" | jq 'length')
+    }
   }"
 ```
 
@@ -1356,25 +1515,26 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 set -e
 
 # Get URLs from previous step
-URLS=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts?stepName=fetch_urls&name=urls" | \
-  jq -r '.artifacts[0].value')
+URLS=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/fields?stepId=fetch-urls" | \
+  jq -r '.fields[0].fields.urls')
 
-# Each instance processes one URL
-URL=$(echo "$URLS" | jq -r ".[$MAXQ_STEP_SEQUENCE]")
+# Each instance processes one URL using INDEX env variable
+URL=$(echo "$URLS" | jq -r ".[$INDEX]")
 
-echo "Scraping: $URL"
+echo "Scraping: $URL (INDEX=$INDEX, STEP_ID=$MAXQ_STEP_ID)"
 CONTENT=$(curl -s "$URL" | html2text)
+CONTENT_JSON=$(echo "$CONTENT" | jq -R -s)
 
-# Store scraped content
-curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
+# Post fields with scraped content
+curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
-    \"stepId\": \"$MAXQ_STEP_ID\",
-    \"stepName\": \"$MAXQ_STEP_NAME\",
-    \"sequence\": $MAXQ_STEP_SEQUENCE,
-    \"name\": \"page_content\",
-    \"value\": { \"url\": \"$URL\", \"content\": $(echo "$CONTENT" | jq -R -s) },
-    \"tags\": [\"scraped\"]
+    \"fields\": {
+      \"status\": \"completed\",
+      \"url\": \"$URL\",
+      \"content\": $CONTENT_JSON,
+      \"length\": ${#CONTENT}
+    }
   }"
 ```
 
@@ -1384,22 +1544,28 @@ curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
 #!/bin/bash
 set -e
 
-# Fetch all scraped pages
-PAGES=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts?stepName=scrape_page&name=page_content")
+# Fetch all scraped page fields
+# Query all steps named scrape_page or query all fields
+PAGES=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/fields")
 
-# Aggregate and count
-TOTAL=$(echo "$PAGES" | jq '.artifacts | length')
+# Filter to scrape-* steps and aggregate
+SCRAPE_FIELDS=$(echo "$PAGES" | jq '[.fields[] | select(.stepId | startswith("scrape-"))]')
+TOTAL=$(echo "$SCRAPE_FIELDS" | jq 'length')
 echo "Scraped $TOTAL pages"
 
-# Store summary
-curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/artifacts" \
+# Calculate total content length
+TOTAL_LENGTH=$(echo "$SCRAPE_FIELDS" | jq '[.[].fields.length] | add')
+
+# Post fields with summary
+curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
-    \"stepId\": \"$MAXQ_STEP_ID\",
-    \"stepName\": \"$MAXQ_STEP_NAME\",
-    \"sequence\": $MAXQ_STEP_SEQUENCE,
-    \"name\": \"summary\",
-    \"value\": { \"totalPages\": $TOTAL }
+    \"fields\": {
+      \"status\": \"completed\",
+      \"total_pages\": $TOTAL,
+      \"total_content_length\": $TOTAL_LENGTH,
+      \"timestamp\": $(date +%s)
+    }
   }"
 ```
 
@@ -1451,16 +1617,16 @@ case "$MAXQ_COMPLETED_STAGE" in
     # Stage 1: Fetch data in parallel
     schedule_stage "data-fetch" "false" '[
       {
+        "id": "fetch-news",
         "name": "fetch_news",
         "dependsOn": [],
-        "instances": 1,
         "maxRetries": 3,
         "env": { "SOURCE": "reuters" }
       },
       {
+        "id": "fetch-prices",
         "name": "fetch_prices",
         "dependsOn": [],
-        "instances": 1,
         "maxRetries": 3,
         "env": { "SYMBOL": "AAPL" }
       }
@@ -1469,18 +1635,40 @@ case "$MAXQ_COMPLETED_STAGE" in
 
   "data-fetch")
     # Stage 2: Analyze data (4 parallel sentiment analyzers)
+    # Flow explicitly generates 4 analyzer steps with unique IDs
     schedule_stage "analysis" "false" '[
       {
+        "id": "analyzer-0",
         "name": "analyze_sentiment",
-        "dependsOn": ["fetch_news"],
-        "instances": 4,
+        "dependsOn": ["fetch-news"],
         "maxRetries": 2,
-        "env": { "MODEL": "sentiment-v2" }
+        "env": { "MODEL": "sentiment-v2", "SHARD": "0" }
       },
       {
+        "id": "analyzer-1",
+        "name": "analyze_sentiment",
+        "dependsOn": ["fetch-news"],
+        "maxRetries": 2,
+        "env": { "MODEL": "sentiment-v2", "SHARD": "1" }
+      },
+      {
+        "id": "analyzer-2",
+        "name": "analyze_sentiment",
+        "dependsOn": ["fetch-news"],
+        "maxRetries": 2,
+        "env": { "MODEL": "sentiment-v2", "SHARD": "2" }
+      },
+      {
+        "id": "analyzer-3",
+        "name": "analyze_sentiment",
+        "dependsOn": ["fetch-news"],
+        "maxRetries": 2,
+        "env": { "MODEL": "sentiment-v2", "SHARD": "3" }
+      },
+      {
+        "id": "calculate-trends",
         "name": "calculate_trends",
-        "dependsOn": ["fetch_prices"],
-        "instances": 1,
+        "dependsOn": ["fetch-prices"],
         "maxRetries": 2,
         "env": {}
       }
@@ -1488,12 +1676,12 @@ case "$MAXQ_COMPLETED_STAGE" in
     ;;
 
   "analysis")
-    # Stage 3: Generate report (depends on both analysis steps)
+    # Stage 3: Generate report
     schedule_stage "reporting" "true" '[
       {
+        "id": "generate-report",
         "name": "generate_report",
-        "dependsOn": ["analyze_sentiment", "calculate_trends"],
-        "instances": 1,
+        "dependsOn": [],
         "maxRetries": 1,
         "env": { "FORMAT": "pdf" }
       }
@@ -1581,10 +1769,10 @@ If a step depends on a failed step:
 
 **Similarities:**
 
-- Flow → Run → Step → Artifact model
+- Flow → Run → Step model
 - DAG-based execution
 - Parallel execution support
-- Artifact storage for data passing
+- Data passing between steps
 
 **Differences:**
 
@@ -1595,7 +1783,8 @@ If a step depends on a failed step:
 | Step execution     | Separate processes via HTTP     | Python functions                       |
 | Flow definition    | Filesystem-based                | Code-based with decorators             |
 | Dependencies       | PostgreSQL only                 | Requires cloud services or local setup |
-| Parallel execution | `instances` parameter           | `foreach` construct                    |
+| Parallel execution | Flow generates multiple IDs     | `foreach` construct                    |
+| Data passing       | Fields (JSON in database)       | Artifacts (object storage)             |
 | Stage concept      | First-class (with `final` flag) | Not present                            |
 
 **Example comparison:**
@@ -1610,13 +1799,15 @@ def process(self):
     self.next(self.report)
 ```
 
-```bash
-# MaxQ
-# In flow.sh stage scheduling:
+```json
+// MaxQ - In flow.sh stage scheduling:
 {
-  "name": "analyze",
-  "instances": 4,
-  "dependsOn": []
+  "steps": [
+    { "id": "analyze-0", "name": "analyze" },
+    { "id": "analyze-1", "name": "analyze" },
+    { "id": "analyze-2", "name": "analyze" },
+    { "id": "analyze-3", "name": "analyze" }
+  ]
 }
 ```
 
@@ -1703,10 +1894,11 @@ A conforming MaxQ implementation MUST:
 4. **Implement HTTP API** as specified in section 6
 5. **Use PostgreSQL** for state storage with schema from section 8
 6. **Handle DAG dependencies** and execute steps in correct order
-7. **Support parallel execution** via `instances` parameter
-8. **Implement retry logic** for failed steps
-9. **Implement stage callbacks** to flow.sh with completed/failed stage names
-10. **Respect `final` flag** and not call flow.sh after final stage completes
+7. **Support parallel execution** (flows generate multiple step IDs with same name)
+8. **Validate step IDs** (alphanumeric + hyphens + underscores, unique within run)
+9. **Implement retry logic** for failed steps
+10. **Implement stage callbacks** to flow.sh with completed/failed stage names
+11. **Respect `final` flag** and not call flow.sh after final stage completes
 
 ### 12.2 Optional Features
 
@@ -1822,8 +2014,9 @@ Features that may be added in future versions:
 - **Run**: A single execution instance of a flow
 - **Stage**: A named batch of steps scheduled together
 - **Step**: An individual unit of work (shell script)
-- **Sequence**: Instance number for parallel steps (0, 1, 2, ...)
-- **Artifact**: Data produced by a step
+- **Step ID**: Unique identifier for a step supplied by flow (e.g., "fetch-news", "analyzer-0")
+- **Step Name**: Script directory name - multiple steps can share the same name
+- **Fields**: Arbitrary JSON data posted by steps when execution completes
 - **DAG**: Directed Acyclic Graph (dependency graph)
 - **Final Stage**: The last stage in a workflow (no callback after completion)
 
@@ -1835,7 +2028,8 @@ See `examples/market_analysis` directory for a complete working example includin
 
 - Flow definition (flow.sh)
 - Multiple step implementations
-- Artifact storage and retrieval
+- Field-based data passing
+- Parallel step execution
 - Error handling
 - README with instructions
 
