@@ -4,6 +4,7 @@ import { createLogger } from "@codespin/maxq-logger";
 import type { DataContext } from "../../domain/data-context.js";
 import { createRun } from "../../domain/run/create-run.js";
 import { startRun } from "../../executor/orchestrator.js";
+import { getFlow } from "../../executor/flow-discovery.js";
 
 const logger = createLogger("maxq:handlers:runs:create");
 
@@ -22,10 +23,14 @@ export function createRunHandler(ctx: DataContext) {
     try {
       const input = createRunSchema.parse(req.body);
 
+      // Get flow metadata (including title from flow.yaml if present)
+      const flow = await getFlow(ctx.executor.config.flowsRoot, input.flowName);
+
       const result = await createRun(ctx, {
         flowName: input.flowName,
         input: input.input,
         metadata: input.metadata,
+        flowTitle: flow?.title,
       });
 
       if (!result.success) {

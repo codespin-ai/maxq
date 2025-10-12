@@ -26,6 +26,9 @@ export type Run = {
   durationMs?: number;
   stdout?: string;
   stderr?: string;
+  name?: string;
+  description?: string;
+  flowTitle?: string;
 };
 
 // Stage domain type (camelCase for API)
@@ -65,6 +68,7 @@ export type CreateRunInput = {
   flowName: string;
   input?: unknown;
   metadata?: unknown;
+  flowTitle?: string; // Display title from flow.yaml
 };
 
 export type CreateStageInput = {
@@ -92,6 +96,8 @@ export type UpdateRunInput = {
   completedAt?: number;
   stdout?: string;
   stderr?: string;
+  name?: string;
+  description?: string;
 };
 
 export type UpdateStageInput = {

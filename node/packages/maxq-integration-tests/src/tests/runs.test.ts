@@ -180,6 +180,27 @@ describe("Runs API", () => {
       expect(response.status).to.equal(400);
       expect(response.data).to.have.property("error");
     });
+
+    it("should update run with name and description", async () => {
+      // Create a run first
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-flow",
+      });
+      const runId = createResponse.data.id;
+
+      // Update with name and description
+      const response = await client.patch<Run>(`/api/v1/runs/${runId}`, {
+        name: "Q4 Analysis",
+        description: "Quarterly market analysis for tech sector",
+      });
+
+      expect(response.status).to.equal(200);
+      expect(response.data).to.have.property("name", "Q4 Analysis");
+      expect(response.data).to.have.property(
+        "description",
+        "Quarterly market analysis for tech sector",
+      );
+    });
   });
 
   describe("GET /api/v1/runs", () => {

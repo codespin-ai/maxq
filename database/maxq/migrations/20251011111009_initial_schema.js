@@ -23,6 +23,9 @@ export async function up(knex) {
     table.bigInteger("duration_ms");
     table.text("stdout"); // Captured stdout from flow.sh process
     table.text("stderr"); // Captured stderr from flow.sh process
+    table.text("name"); // Run display name (set by flow via API)
+    table.text("description"); // Run display description (set by flow via API)
+    table.text("flow_title"); // Flow display title (from flow.yaml)
 
     // Indexes
     table.index("flow_name", "idx_run_flow_name");

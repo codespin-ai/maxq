@@ -6,6 +6,7 @@ export type FlowDiscovery = {
   name: string;
   path: string;
   steps: string[];
+  title?: string; // Display title from flow.yaml
 };
 
 export type ExecutorConfig = {

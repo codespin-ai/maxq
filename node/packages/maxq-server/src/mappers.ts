@@ -21,6 +21,9 @@ export function mapRunFromDb(row: RunDbRow): Run {
     durationMs: row.duration_ms ?? undefined,
     stdout: row.stdout ?? undefined,
     stderr: row.stderr ?? undefined,
+    name: row.name ?? undefined,
+    description: row.description ?? undefined,
+    flowTitle: row.flow_title ?? undefined,
   };
 }
 
@@ -40,6 +43,9 @@ export function mapRunToDb(run: Partial<Run>): Partial<RunDbRow> {
   if (run.durationMs !== undefined) dbRow.duration_ms = run.durationMs;
   if (run.stdout !== undefined) dbRow.stdout = run.stdout;
   if (run.stderr !== undefined) dbRow.stderr = run.stderr;
+  if (run.name !== undefined) dbRow.name = run.name;
+  if (run.description !== undefined) dbRow.description = run.description;
+  if (run.flowTitle !== undefined) dbRow.flow_title = run.flowTitle;
 
   return dbRow;
 }

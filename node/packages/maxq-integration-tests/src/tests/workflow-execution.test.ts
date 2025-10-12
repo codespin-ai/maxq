@@ -754,4 +754,82 @@ exit 0
     );
     expect(steps).to.have.lengthOf(0);
   });
+
+  it("should read flow title from flow.yaml", async () => {
+    // Create flow with flow.yaml containing title
+    const flowDir = join(flowsRoot, "titled-flow");
+    await mkdir(flowDir);
+
+    // Create flow.yaml with title
+    const flowYamlPath = join(flowDir, "flow.yaml");
+    await writeFile(
+      flowYamlPath,
+      `title: "Market Analysis Pipeline"
+`,
+    );
+
+    const flowScript = join(flowDir, "flow.sh");
+    await writeFile(
+      flowScript,
+      `#!/bin/bash
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "analysis",
+    "final": true,
+    "steps": [
+      {"id": "analyze", "name": "analyze", "maxRetries": 0, "dependsOn": []}
+    ]
+  }'
+`,
+    );
+    await chmod(flowScript, 0o755);
+
+    // Create step
+    const stepsDir = join(flowDir, "steps");
+    await mkdir(stepsDir);
+    const stepDir = join(stepsDir, "analyze");
+    await mkdir(stepDir);
+    const stepScript = join(stepDir, "step.sh");
+    await writeFile(
+      stepScript,
+      `#!/bin/bash
+echo "Analysis complete"
+exit 0
+`,
+    );
+    await chmod(stepScript, 0o755);
+
+    // Reconfigure server
+    await testServer.reconfigure({ flowsRoot });
+
+    // Create run
+    const createResponse = await client.post<Run>("/api/v1/runs", {
+      flowName: "titled-flow",
+    });
+
+    expect(createResponse.status).to.equal(201);
+    const runId = createResponse.data.id;
+
+    // Verify flowTitle was populated from flow.yaml
+    expect(createResponse.data.flowTitle).to.equal("Market Analysis Pipeline");
+
+    // Wait for run to complete
+    await testDb.waitForQuery<
+      { runId: string; status: string },
+      { id: string }
+    >(
+      (q, p) =>
+        q
+          .from("run")
+          .where((r) => r.id === p.runId && r.status === p.status)
+          .select((r) => ({ id: r.id })),
+      { runId, status: "completed" },
+      { timeout: 3000 },
+    );
+
+    // Verify flowTitle persisted in database
+    const runResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+    expect(runResponse.data.flowTitle).to.equal("Market Analysis Pipeline");
+  });
 });
