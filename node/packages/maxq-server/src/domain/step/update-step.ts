@@ -1,6 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
-import type { StepDbRow } from "@codespin/maxq-db";
+import { schema } from "@codespin/maxq-db";
+import { executeUpdate, executeSelect } from "@webpods/tinqer-sql-pg-promise";
 import type { DataContext } from "../data-context.js";
 import type { Step, UpdateStepInput } from "../../types.js";
 import { mapStepFromDb } from "../../mappers.js";
@@ -21,54 +22,59 @@ export async function updateStep(
   input: UpdateStepInput,
 ): Promise<Result<Step, Error>> {
   try {
-    const updates: string[] = [];
-    const params: Record<string, unknown> = { id };
-
-    if (input.status !== undefined) {
-      updates.push("status = ${status}");
-      params.status = input.status;
-    }
-    if (input.output !== undefined) {
-      updates.push("output = ${output}");
-      params.output = input.output;
-    }
-    if (input.error !== undefined) {
-      updates.push("error = ${error}");
-      params.error = input.error;
-    }
-    if (input.retryCount !== undefined) {
-      updates.push("retry_count = ${retryCount}");
-      params.retryCount = input.retryCount;
-    }
-    if (input.startedAt !== undefined) {
-      updates.push("started_at = ${startedAt}");
-      params.startedAt = input.startedAt;
-    }
-    if (input.completedAt !== undefined) {
-      updates.push("completed_at = ${completedAt}");
-      params.completedAt = input.completedAt;
-    }
-    if (input.stdout !== undefined) {
-      updates.push("stdout = ${stdout}");
-      params.stdout = input.stdout;
-    }
-    if (input.stderr !== undefined) {
-      updates.push("stderr = ${stderr}");
-      params.stderr = input.stderr;
-    }
-
-    if (updates.length === 0) {
+    if (Object.keys(input).length === 0) {
       return failure(new Error("No fields to update"));
     }
 
-    const updateQuery = `
-      UPDATE step
-      SET ${updates.join(", ")}
-      WHERE id = \${id}
-      RETURNING *
-    `;
+    // Fetch current row to get existing values
+    const existingRows = await executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("step").where((s) => s.id === p.id),
+      { id },
+    );
 
-    const row = await ctx.db.one<StepDbRow>(updateQuery, params);
+    const existing = existingRows[0];
+    if (!existing) {
+      return failure(new Error("Step not found"));
+    }
+
+    // Update with object literal - all values passed via params
+    const rows = await executeUpdate(
+      ctx.db,
+      schema,
+      (q, p) =>
+        q
+          .update("step")
+          .set({
+            status: p.status,
+            fields: p.fields,
+            error: p.error,
+            retry_count: p.retryCount,
+            started_at: p.startedAt,
+            completed_at: p.completedAt,
+            stdout: p.stdout,
+            stderr: p.stderr,
+          })
+          .where((s) => s.id === p.id)
+          .returning((s) => s),
+      {
+        id,
+        status: input.status ?? existing.status,
+        fields: input.fields ?? existing.fields,
+        error: input.error ?? existing.error,
+        retryCount: input.retryCount ?? existing.retry_count,
+        startedAt: input.startedAt ?? existing.started_at,
+        completedAt: input.completedAt ?? existing.completed_at,
+        stdout: input.stdout ?? existing.stdout,
+        stderr: input.stderr ?? existing.stderr,
+      },
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return failure(new Error("Step not found after update"));
+    }
 
     logger.debug("Updated step", { id, updates: Object.keys(input) });
 

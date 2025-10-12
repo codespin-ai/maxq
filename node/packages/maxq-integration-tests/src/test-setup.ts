@@ -4,7 +4,7 @@ import {
   TestHttpClient,
   testLogger,
 } from "@codespin/maxq-test-utils";
-import { waitForAllOrchestrators } from "@codespin/maxq-server";
+import type { PaginatedResult, Run } from "@codespin/maxq-server";
 import { use } from "chai";
 import chaiAsPromised from "chai-as-promised";
 import { mkdir, writeFile, chmod } from "fs/promises";
@@ -28,9 +28,6 @@ const packageRoot = join(srcDir, ".."); // maxq-integration-tests/
 const packagesDir = join(packageRoot, ".."); // packages/
 const flowsRoot = join(packagesDir, "maxq-server/flows");
 
-console.log(`[TEST-SETUP] Computed flows root: ${flowsRoot}`);
-console.log(`[TEST-SETUP] Creating TestServer with port 5099 and flowsRoot: ${flowsRoot}`);
-
 export const testServer = new TestServer({
   port: 5099,
   dbName: "maxq_test",
@@ -38,6 +35,37 @@ export const testServer = new TestServer({
   flowsRoot, // Explicitly set flows root
 });
 export const client = new TestHttpClient(`http://localhost:5099`);
+
+/**
+ * Wait for all active flows to complete by polling the API
+ * This works across process boundaries (test process -> spawned server process)
+ */
+async function waitForActiveFlows(): Promise<void> {
+  const maxWait = 5000; // 5 seconds
+  const interval = 50; // Check every 50ms
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWait) {
+    try {
+      const response = await client.get<PaginatedResult<Run>>(
+        "/api/v1/runs?status=running&limit=1",
+      );
+
+      // Check if response has the expected structure
+      if (response.status === 200 && response.data?.pagination?.total === 0) {
+        return; // No active flows
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    } catch (error) {
+      // Ignore errors during cleanup - server might be shutting down
+      testLogger.debug("Error checking active flows:", error);
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
+
+  testLogger.warn("Timeout waiting for active flows to complete");
+}
 
 /**
  * Creates dummy flows for API tests
@@ -60,15 +88,16 @@ async function createDummyFlows(): Promise<void> {
       "workflow-b",
     ];
 
-    // Minimal valid flow response (final stage with no steps)
+    // Minimal valid flow that uses HTTP API (as per spec)
     const flowScript = `#!/bin/bash
-cat <<'EOF'
-{
-  "stage": "dummy",
-  "final": true,
-  "steps": []
-}
-EOF
+# Schedule a dummy stage via HTTP API
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stage": "dummy",
+    "final": true,
+    "steps": []
+  }'
 `;
 
     for (const flowName of flowNames) {
@@ -107,9 +136,9 @@ before(async function () {
 
 // Cleanup after each test
 afterEach(async function () {
-  // Wait for all background orchestrators to complete
-  // This prevents race conditions where truncate happens while orchestrator is still running
-  await waitForAllOrchestrators();
+  // Wait for all active flows to complete by polling the server API
+  // This works across process boundaries (test process -> spawned server)
+  await waitForActiveFlows();
 
   // Now it's safe to truncate tables
   await testDb.truncateAllTables();

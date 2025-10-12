@@ -12,7 +12,7 @@ import {
 describe("Executor DAG Resolution", () => {
   describe("resolveDAG", () => {
     it("should resolve single step with no dependencies", () => {
-      const steps: StepDefinition[] = [{ name: "step-1" }];
+      const steps: StepDefinition[] = [{ id: "step-1", name: "step-1" }];
 
       const levels = resolveDAG(steps);
 
@@ -23,9 +23,9 @@ describe("Executor DAG Resolution", () => {
 
     it("should resolve multiple independent steps in one level", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1" },
-        { name: "step-2" },
-        { name: "step-3" },
+        { id: "step-1", name: "step-1" },
+        { id: "step-2", name: "step-2" },
+        { id: "step-3", name: "step-3" },
       ];
 
       const levels = resolveDAG(steps);
@@ -38,9 +38,9 @@ describe("Executor DAG Resolution", () => {
 
     it("should resolve linear dependency chain", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1" },
-        { name: "step-2", dependsOn: ["step-1"] },
-        { name: "step-3", dependsOn: ["step-2"] },
+        { id: "step-1", name: "step-1" },
+        { id: "step-2", name: "step-2", dependsOn: ["step-1"] },
+        { id: "step-3", name: "step-3", dependsOn: ["step-2"] },
       ];
 
       const levels = resolveDAG(steps);
@@ -53,10 +53,14 @@ describe("Executor DAG Resolution", () => {
 
     it("should resolve diamond dependency pattern", () => {
       const steps: StepDefinition[] = [
-        { name: "fetch" },
-        { name: "process-a", dependsOn: ["fetch"] },
-        { name: "process-b", dependsOn: ["fetch"] },
-        { name: "combine", dependsOn: ["process-a", "process-b"] },
+        { id: "fetch", name: "fetch" },
+        { id: "process-a", name: "process-a", dependsOn: ["fetch"] },
+        { id: "process-b", name: "process-b", dependsOn: ["fetch"] },
+        {
+          id: "combine",
+          name: "combine",
+          dependsOn: ["process-a", "process-b"],
+        },
       ];
 
       const levels = resolveDAG(steps);
@@ -79,13 +83,17 @@ describe("Executor DAG Resolution", () => {
 
     it("should resolve complex multi-level dependencies", () => {
       const steps: StepDefinition[] = [
-        { name: "init" },
-        { name: "fetch-a", dependsOn: ["init"] },
-        { name: "fetch-b", dependsOn: ["init"] },
-        { name: "process-a", dependsOn: ["fetch-a"] },
-        { name: "process-b", dependsOn: ["fetch-b"] },
-        { name: "aggregate", dependsOn: ["process-a", "process-b"] },
-        { name: "format", dependsOn: ["aggregate"] },
+        { id: "init", name: "init" },
+        { id: "fetch-a", name: "fetch-a", dependsOn: ["init"] },
+        { id: "fetch-b", name: "fetch-b", dependsOn: ["init"] },
+        { id: "process-a", name: "process-a", dependsOn: ["fetch-a"] },
+        { id: "process-b", name: "process-b", dependsOn: ["fetch-b"] },
+        {
+          id: "aggregate",
+          name: "aggregate",
+          dependsOn: ["process-a", "process-b"],
+        },
+        { id: "format", name: "format", dependsOn: ["aggregate"] },
       ];
 
       const levels = resolveDAG(steps);
@@ -114,10 +122,14 @@ describe("Executor DAG Resolution", () => {
 
     it("should handle steps with multiple dependencies", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1" },
-        { name: "step-2" },
-        { name: "step-3" },
-        { name: "step-4", dependsOn: ["step-1", "step-2", "step-3"] },
+        { id: "step-1", name: "step-1" },
+        { id: "step-2", name: "step-2" },
+        { id: "step-3", name: "step-3" },
+        {
+          id: "step-4",
+          name: "step-4",
+          dependsOn: ["step-1", "step-2", "step-3"],
+        },
       ];
 
       const levels = resolveDAG(steps);
@@ -136,15 +148,15 @@ describe("Executor DAG Resolution", () => {
     it("should preserve step properties through resolution", () => {
       const steps: StepDefinition[] = [
         {
+          id: "step-1",
           name: "step-1",
-          instances: 3,
           maxRetries: 2,
           env: { FOO: "bar" },
         },
         {
+          id: "step-2",
           name: "step-2",
           dependsOn: ["step-1"],
-          instances: 1,
           maxRetries: 0,
         },
       ];
@@ -155,21 +167,21 @@ describe("Executor DAG Resolution", () => {
 
       // Check properties are preserved
       const step1 = levels[0]![0]!;
+      expect(step1!.id).to.equal("step-1");
       expect(step1!.name).to.equal("step-1");
-      expect(step1!.instances).to.equal(3);
       expect(step1!.maxRetries).to.equal(2);
       expect(step1!.env).to.deep.equal({ FOO: "bar" });
 
       const step2 = levels[1]![0]!;
+      expect(step2!.id).to.equal("step-2");
       expect(step2!.name).to.equal("step-2");
-      expect(step2!.instances).to.equal(1);
       expect(step2!.maxRetries).to.equal(0);
     });
 
     it("should handle empty dependsOn array", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1", dependsOn: [] },
-        { name: "step-2", dependsOn: [] },
+        { id: "step-1", name: "step-1", dependsOn: [] },
+        { id: "step-2", name: "step-2", dependsOn: [] },
       ];
 
       const levels = resolveDAG(steps);
@@ -180,8 +192,8 @@ describe("Executor DAG Resolution", () => {
 
     it("should detect circular dependencies (direct)", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1", dependsOn: ["step-2"] },
-        { name: "step-2", dependsOn: ["step-1"] },
+        { id: "step-1", name: "step-1", dependsOn: ["step-2"] },
+        { id: "step-2", name: "step-2", dependsOn: ["step-1"] },
       ];
 
       expect(() => resolveDAG(steps)).to.throw(/Circular dependency detected/);
@@ -189,9 +201,9 @@ describe("Executor DAG Resolution", () => {
 
     it("should detect circular dependencies (indirect)", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1", dependsOn: ["step-3"] },
-        { name: "step-2", dependsOn: ["step-1"] },
-        { name: "step-3", dependsOn: ["step-2"] },
+        { id: "step-1", name: "step-1", dependsOn: ["step-3"] },
+        { id: "step-2", name: "step-2", dependsOn: ["step-1"] },
+        { id: "step-3", name: "step-3", dependsOn: ["step-2"] },
       ];
 
       expect(() => resolveDAG(steps)).to.throw(/Circular dependency detected/);
@@ -199,7 +211,7 @@ describe("Executor DAG Resolution", () => {
 
     it("should detect self-referencing dependency", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1", dependsOn: ["step-1"] },
+        { id: "step-1", name: "step-1", dependsOn: ["step-1"] },
       ];
 
       expect(() => resolveDAG(steps)).to.throw(/Circular dependency detected/);
@@ -207,8 +219,8 @@ describe("Executor DAG Resolution", () => {
 
     it("should reject dependency on non-existent step", () => {
       const steps: StepDefinition[] = [
-        { name: "step-1" },
-        { name: "step-2", dependsOn: ["nonexistent-step"] },
+        { id: "step-1", name: "step-1" },
+        { id: "step-2", name: "step-2", dependsOn: ["nonexistent-step"] },
       ];
 
       expect(() => resolveDAG(steps)).to.throw(
@@ -227,7 +239,7 @@ describe("Executor DAG Resolution", () => {
     it("should resolve wide parallel execution", () => {
       const steps: StepDefinition[] = [];
       for (let i = 1; i <= 10; i++) {
-        steps.push({ name: `parallel-step-${i}` });
+        steps.push({ id: `parallel-step-${i}`, name: `parallel-step-${i}` });
       }
 
       const levels = resolveDAG(steps);
@@ -237,9 +249,10 @@ describe("Executor DAG Resolution", () => {
     });
 
     it("should resolve deep sequential execution", () => {
-      const steps: StepDefinition[] = [{ name: "step-1" }];
+      const steps: StepDefinition[] = [{ id: "step-1", name: "step-1" }];
       for (let i = 2; i <= 10; i++) {
         steps.push({
+          id: `step-${i}`,
           name: `step-${i}`,
           dependsOn: [`step-${i - 1}`],
         });
@@ -256,13 +269,18 @@ describe("Executor DAG Resolution", () => {
 
     it("should handle mixed sequential and parallel steps", () => {
       const steps: StepDefinition[] = [
-        { name: "init" },
-        { name: "parallel-1", dependsOn: ["init"] },
-        { name: "parallel-2", dependsOn: ["init"] },
-        { name: "parallel-3", dependsOn: ["init"] },
-        { name: "sequential-1", dependsOn: ["parallel-1"] },
-        { name: "sequential-2", dependsOn: ["sequential-1"] },
+        { id: "init", name: "init" },
+        { id: "parallel-1", name: "parallel-1", dependsOn: ["init"] },
+        { id: "parallel-2", name: "parallel-2", dependsOn: ["init"] },
+        { id: "parallel-3", name: "parallel-3", dependsOn: ["init"] },
+        { id: "sequential-1", name: "sequential-1", dependsOn: ["parallel-1"] },
         {
+          id: "sequential-2",
+          name: "sequential-2",
+          dependsOn: ["sequential-1"],
+        },
+        {
+          id: "final",
           name: "final",
           dependsOn: ["parallel-2", "parallel-3", "sequential-2"],
         },
@@ -290,12 +308,13 @@ describe("Executor DAG Resolution", () => {
 
     it("should handle fan-out then fan-in pattern", () => {
       const steps: StepDefinition[] = [
-        { name: "source" },
-        { name: "worker-1", dependsOn: ["source"] },
-        { name: "worker-2", dependsOn: ["source"] },
-        { name: "worker-3", dependsOn: ["source"] },
-        { name: "worker-4", dependsOn: ["source"] },
+        { id: "source", name: "source" },
+        { id: "worker-1", name: "worker-1", dependsOn: ["source"] },
+        { id: "worker-2", name: "worker-2", dependsOn: ["source"] },
+        { id: "worker-3", name: "worker-3", dependsOn: ["source"] },
+        { id: "worker-4", name: "worker-4", dependsOn: ["source"] },
         {
+          id: "sink",
           name: "sink",
           dependsOn: ["worker-1", "worker-2", "worker-3", "worker-4"],
         },

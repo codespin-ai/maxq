@@ -11,7 +11,6 @@ export type {
   Run,
   Stage,
   Step,
-  Artifact,
   CreateRunInput,
   UpdateRunInput,
   UpdateStageInput,
@@ -19,7 +18,6 @@ export type {
   PaginatedResult,
   ListRunsParams,
   ListStepsParams,
-  QueryArtifactsParams,
 } from "./types.js";
 export type { RunStatus, StageStatus, StepStatus } from "@codespin/maxq-db";
 

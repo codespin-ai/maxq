@@ -51,17 +51,16 @@ export type StageDbRow = {
 
 // Step table row (exact database schema with snake_case)
 export type StepDbRow = {
-  id: string;
+  id: string; // Unique step ID supplied by flow (e.g., "fetch-news", "analyzer-0")
   run_id: string;
   stage_id: string;
-  name: string;
-  sequence: number;
+  name: string; // Step script directory name (e.g., "fetch_news", "analyzer")
   status: StepStatus;
-  depends_on: unknown; // Array of step names (JSONB)
+  depends_on: unknown; // Array of step IDs (JSONB)
   retry_count: number;
   max_retries: number;
   env: unknown | null; // Environment variables (JSONB)
-  output: unknown | null;
+  fields: unknown | null; // Step fields posted via POST /runs/{runId}/steps/{stepId}/fields (JSONB)
   error: unknown | null;
   created_at: number;
   started_at: number | null;
@@ -71,25 +70,9 @@ export type StepDbRow = {
   stderr: string | null;
 };
 
-// Artifact table row (exact database schema with snake_case)
-export type ArtifactDbRow = {
-  id: string;
-  run_id: string;
-  step_id: string;
-  step_name: string;
-  sequence: number;
-  name: string;
-  full_path: string;
-  value: unknown; // JSON data
-  tags: string[] | null;
-  metadata: unknown | null;
-  created_at: number;
-};
-
 // Complete database schema for Tinqer
 export type DatabaseSchema = {
   run: RunDbRow;
   stage: StageDbRow;
   step: StepDbRow;
-  artifact: ArtifactDbRow;
 };

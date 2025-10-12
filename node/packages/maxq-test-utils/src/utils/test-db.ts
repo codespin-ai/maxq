@@ -105,17 +105,22 @@ export class TestDatabase {
   }
 
   public async truncateAllTables(): Promise<void> {
-    if (!this.db) throw new Error("Database not initialized");
+    if (!this.pgDb) throw new Error("Database not initialized");
 
-    // Get all tables except knex_migrations
-    const tables = await this.db("pg_tables")
-      .select("tablename")
-      .where("schemaname", "public")
-      .whereNotIn("tablename", ["knex_migrations", "knex_migrations_lock"]);
+    // Get all tables except knex_migrations using pg-promise
+    // This uses the SAME connection pool as the server, avoiding isolation issues
+    const tables = await this.pgDb.any<{ tablename: string }>(
+      `
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public'
+      AND tablename NOT IN ('knex_migrations', 'knex_migrations_lock')
+    `,
+    );
 
-    // Truncate all tables
+    // Truncate all tables using pg-promise (not Knex)
+    // This ensures the server's pg-promise connection sees the truncation immediately
     for (const { tablename } of tables) {
-      await this.db.raw(`TRUNCATE TABLE "${tablename}" CASCADE`);
+      await this.pgDb.none(`TRUNCATE TABLE "${tablename}" CASCADE`);
     }
   }
 

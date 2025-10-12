@@ -41,17 +41,16 @@ export type Stage = {
 
 // Step domain type (camelCase for API)
 export type Step = {
-  id: string;
+  id: string; // Unique step ID supplied by flow (e.g., "fetch-news", "analyzer-0")
   runId: string;
   stageId: string;
-  name: string;
-  sequence: number;
+  name: string; // Step script directory name (e.g., "fetch_news", "analyzer")
   status: StepStatus;
-  dependsOn: string[]; // Array of step names
+  dependsOn: string[]; // Array of step IDs (not names)
   retryCount: number;
   maxRetries: number;
   env?: Record<string, string>;
-  output?: unknown;
+  fields?: Record<string, unknown>; // Arbitrary fields posted by step
   error?: unknown;
   createdAt: number;
   startedAt?: number;
@@ -59,21 +58,6 @@ export type Step = {
   durationMs?: number;
   stdout?: string;
   stderr?: string;
-};
-
-// Artifact domain type (camelCase for API)
-export type Artifact = {
-  id: string;
-  runId: string;
-  stepId: string;
-  stepName: string;
-  sequence: number;
-  name: string;
-  fullPath: string;
-  value: unknown;
-  tags?: string[];
-  metadata?: unknown;
-  createdAt: number;
 };
 
 // Input types for creating entities
@@ -90,24 +74,13 @@ export type CreateStageInput = {
 };
 
 export type CreateStepInput = {
+  id: string; // Unique step ID supplied by flow (e.g., "fetch-news", "analyzer-0")
   runId: string;
   stageId: string;
-  name: string;
-  sequence: number;
-  dependsOn: string[];
+  name: string; // Step script directory name (e.g., "fetch_news", "analyzer")
+  dependsOn: string[]; // Array of step IDs
   maxRetries: number;
   env?: Record<string, string>;
-};
-
-export type CreateArtifactInput = {
-  runId: string;
-  stepId: string;
-  stepName: string;
-  sequence: number;
-  name: string;
-  value: unknown;
-  tags?: string[];
-  metadata?: unknown;
 };
 
 // Update types
@@ -128,7 +101,7 @@ export type UpdateStageInput = {
 
 export type UpdateStepInput = {
   status?: StepStatus;
-  output?: unknown;
+  fields?: Record<string, unknown>;
   error?: unknown;
   retryCount?: number;
   startedAt?: number;
@@ -152,23 +125,9 @@ export type ListStepsParams = {
   stage?: string;
   status?: StepStatus;
   name?: string;
-  sequence?: number;
   limit?: number;
   offset?: number;
   sortBy?: "createdAt" | "completedAt";
-  sortOrder?: "asc" | "desc";
-};
-
-export type QueryArtifactsParams = {
-  runId: string;
-  stepName?: string;
-  sequence?: number;
-  name?: string;
-  namePrefix?: string;
-  tags?: string[];
-  limit?: number;
-  offset?: number;
-  sortBy?: "createdAt";
   sortOrder?: "asc" | "desc";
 };
 

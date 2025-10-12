@@ -32,15 +32,17 @@ describe("Workflow Execution E2E", () => {
       flowScript,
       `#!/bin/bash
 echo "Flow started" >&2
-cat <<'EOF'
-{
-  "stage": "execution",
-  "final": true,
-  "steps": [
-    {"name": "hello-step", "instances": 1}
-  ]
-}
-EOF
+
+# Schedule stage via HTTP API (as per spec)
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "execution",
+    "final": true,
+    "steps": [
+      {"id": "hello-step", "name": "hello-step", "maxRetries": 0, "dependsOn": []}
+    ]
+  }'
 `,
     );
     await chmod(flowScript, 0o755);
@@ -121,7 +123,6 @@ exit 0
         status: string;
         stdout: string;
         stderr: string;
-        sequence: number;
       }
     >(
       (q, p) =>
@@ -133,7 +134,6 @@ exit 0
             status: s.status,
             stdout: s.stdout,
             stderr: s.stderr,
-            sequence: s.sequence,
           })),
       { runId },
     );
@@ -141,7 +141,6 @@ exit 0
     expect(steps).to.have.lengthOf(1);
     expect(steps[0]!.name).to.equal("hello-step");
     expect(steps[0]!.status).to.equal("completed");
-    expect(steps[0]!.sequence).to.equal(0);
     expect(steps[0]!.stdout).to.include("Hello from step");
     expect(steps[0]!.stderr).to.include("Step error");
   });
@@ -156,27 +155,27 @@ exit 0
       `#!/bin/bash
 
 if [ -z "$MAXQ_COMPLETED_STAGE" ]; then
-  # First call - return stage 1
-  cat <<'EOF'
-{
-  "stage": "stage-1",
-  "final": false,
-  "steps": [
-    {"name": "step-1", "instances": 1}
-  ]
-}
-EOF
+  # First call - schedule stage 1
+  curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+    -H "Content-Type: application/json" \\
+    -d '{
+      "stage": "stage-1",
+      "final": false,
+      "steps": [
+        {"id": "step-1", "name": "step-1", "maxRetries": 0, "dependsOn": []}
+      ]
+    }'
 elif [ "$MAXQ_COMPLETED_STAGE" = "stage-1" ]; then
-  # After stage 1 completes - return final stage
-  cat <<'EOF'
-{
-  "stage": "stage-2",
-  "final": true,
-  "steps": [
-    {"name": "step-2", "instances": 1}
-  ]
-}
-EOF
+  # After stage 1 completes - schedule final stage
+  curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+    -H "Content-Type: application/json" \\
+    -d '{
+      "stage": "stage-2",
+      "final": true,
+      "steps": [
+        {"id": "step-2", "name": "step-2", "maxRetries": 0, "dependsOn": []}
+      ]
+    }'
 fi
 `,
     );
@@ -272,18 +271,18 @@ echo "Executed ${stepName}"
     await writeFile(
       flowScript,
       `#!/bin/bash
-cat <<'EOF'
-{
-  "stage": "parallel-stage",
-  "final": true,
-  "steps": [
-    {"name": "init", "instances": 1},
-    {"name": "task-a", "dependsOn": ["init"], "instances": 1},
-    {"name": "task-b", "dependsOn": ["init"], "instances": 1},
-    {"name": "aggregate", "dependsOn": ["task-a", "task-b"], "instances": 1}
-  ]
-}
-EOF
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "parallel-stage",
+    "final": true,
+    "steps": [
+      {"id": "init", "name": "init", "maxRetries": 0, "dependsOn": []},
+      {"id": "task-a", "name": "task-a", "dependsOn": ["init"], "maxRetries": 0},
+      {"id": "task-b", "name": "task-b", "dependsOn": ["init"], "maxRetries": 0},
+      {"id": "aggregate", "name": "aggregate", "dependsOn": ["task-a", "task-b"], "maxRetries": 0}
+    ]
+  }'
 `,
     );
     await chmod(flowScript, 0o755);
@@ -360,15 +359,15 @@ echo "Executed ${stepName}"
     await writeFile(
       flowScript,
       `#!/bin/bash
-cat <<'EOF'
-{
-  "stage": "fail-stage",
-  "final": true,
-  "steps": [
-    {"name": "fail-step", "instances": 1}
-  ]
-}
-EOF
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "fail-stage",
+    "final": true,
+    "steps": [
+      {"id": "fail-step", "name": "fail-step", "maxRetries": 0, "dependsOn": []}
+    ]
+  }'
 `,
     );
     await chmod(flowScript, 0o755);
@@ -457,15 +456,15 @@ exit 1
     await writeFile(
       flowScript,
       `#!/bin/bash
-cat <<'EOF'
-{
-  "stage": "retry-stage",
-  "final": true,
-  "steps": [
-    {"name": "retry-step", "instances": 1, "maxRetries": 2}
-  ]
-}
-EOF
+curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "retry-stage",
+    "final": true,
+    "steps": [
+      {"id": "retry-step", "name": "retry-step", "maxRetries": 2, "dependsOn": []}
+    ]
+  }'
 `,
     );
     await chmod(flowScript, 0o755);

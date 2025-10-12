@@ -31,23 +31,18 @@ describe("Executor End-to-End Tests", () => {
   });
 
   describe("Flow Executor", () => {
-    it("should execute flow and parse JSON response", async () => {
-      // Create flow that returns valid JSON
+    it("should execute flow and capture stdout/stderr (no JSON parsing)", async () => {
+      // Flows communicate via HTTP API, not stdout JSON
+      // stdout/stderr are captured for debugging only
       const flowDir = join(flowsRoot, "test-flow");
       await mkdir(flowDir);
       const flowScript = join(flowDir, "flow.sh");
       await writeFile(
         flowScript,
         `#!/bin/bash
-cat <<'EOF'
-{
-  "stage": "data-fetch",
-  "final": false,
-  "steps": [
-    {"name": "fetch-data", "instances": 1}
-  ]
-}
-EOF
+echo "Flow executing - would call HTTP API here" >&2
+# In real flow: curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" ...
+exit 0
 `,
       );
       await chmod(flowScript, 0o755);
@@ -61,11 +56,10 @@ EOF
       });
 
       expect(result.processResult.exitCode).to.equal(0);
-      expect(result.response).to.not.be.null;
-      expect(result.response!.stage).to.equal("data-fetch");
-      expect(result.response!.final).to.be.false;
-      expect(result.response!.steps).to.have.lengthOf(1);
-      expect(result.response!.steps[0]!.name).to.equal("fetch-data");
+      expect(result.response).to.be.null; // Flows don't return JSON responses
+      expect(result.processResult.stderr).to.include(
+        "Flow executing - would call HTTP API here",
+      );
     });
 
     it("should pass environment variables to flow", async () => {
@@ -78,13 +72,7 @@ EOF
 echo "RUN_ID=$MAXQ_RUN_ID"
 echo "FLOW_NAME=$MAXQ_FLOW_NAME"
 echo "API=$MAXQ_API"
-cat <<'EOF'
-{
-  "stage": "test",
-  "final": true,
-  "steps": []
-}
-EOF
+exit 0
 `,
       );
       await chmod(flowScript, 0o755);
@@ -113,13 +101,7 @@ EOF
         flowScript,
         `#!/bin/bash
 echo "COMPLETED_STAGE=$MAXQ_COMPLETED_STAGE"
-cat <<'EOF'
-{
-  "stage": "next-stage",
-  "final": true,
-  "steps": []
-}
-EOF
+exit 0
 `,
       );
       await chmod(flowScript, 0o755);
@@ -147,13 +129,7 @@ EOF
         flowScript,
         `#!/bin/bash
 echo "FAILED_STAGE=$MAXQ_FAILED_STAGE"
-cat <<'EOF'
-{
-  "stage": "retry-stage",
-  "final": true,
-  "steps": []
-}
-EOF
+exit 0
 `,
       );
       await chmod(flowScript, 0o755);
@@ -246,8 +222,8 @@ echo "Step executed"
         runId: "run-123",
         flowName: "test-flow",
         stage: "test-stage",
+        stepId: "test-step-0",
         stepName: "test-step",
-        sequence: 0,
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
@@ -283,8 +259,8 @@ echo "CUSTOM=$CUSTOM_VAR"
         runId: "run-456",
         flowName: "env-flow",
         stage: "my-stage",
+        stepId: "env-step-2",
         stepName: "env-step",
-        sequence: 2,
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
@@ -296,7 +272,6 @@ echo "CUSTOM=$CUSTOM_VAR"
       expect(result.stdout).to.include("FLOW=env-flow");
       expect(result.stdout).to.include("STAGE=my-stage");
       expect(result.stdout).to.include("STEP=env-step");
-      expect(result.stdout).to.include("SEQ=2");
       expect(result.stdout).to.include("API=http://localhost:5003/api/v1");
       expect(result.stdout).to.include("CUSTOM=custom-value");
     });
@@ -334,12 +309,16 @@ echo "Executing ${stepName}"
 
     it("should execute steps in DAG order", async () => {
       const steps: StepDefinition[] = [
-        { name: "init" },
-        { name: "fetch-a", dependsOn: ["init"] },
-        { name: "fetch-b", dependsOn: ["init"] },
-        { name: "process-a", dependsOn: ["fetch-a"] },
-        { name: "process-b", dependsOn: ["fetch-b"] },
-        { name: "aggregate", dependsOn: ["process-a", "process-b"] },
+        { id: "init", name: "init" },
+        { id: "fetch-a", name: "fetch-a", dependsOn: ["init"] },
+        { id: "fetch-b", name: "fetch-b", dependsOn: ["init"] },
+        { id: "process-a", name: "process-a", dependsOn: ["fetch-a"] },
+        { id: "process-b", name: "process-b", dependsOn: ["fetch-b"] },
+        {
+          id: "aggregate",
+          name: "aggregate",
+          dependsOn: ["process-a", "process-b"],
+        },
       ];
 
       const results = await executeStepsDAG(
@@ -377,9 +356,9 @@ echo "Executing ${stepName}"
 
     it("should execute independent steps in parallel", async () => {
       const steps: StepDefinition[] = [
-        { name: "init" },
-        { name: "fetch-a", dependsOn: ["init"] },
-        { name: "fetch-b", dependsOn: ["init"] },
+        { id: "init", name: "init" },
+        { id: "fetch-a", name: "fetch-a", dependsOn: ["init"] },
+        { id: "fetch-b", name: "fetch-b", dependsOn: ["init"] },
       ];
 
       const startTime = Date.now();
@@ -421,10 +400,14 @@ exit 1
       await chmod(failScript, 0o755);
 
       const steps: StepDefinition[] = [
-        { name: "init" },
-        { name: "fail-step", dependsOn: ["init"] },
-        { name: "fetch-a", dependsOn: ["init"] },
-        { name: "aggregate", dependsOn: ["fail-step", "fetch-a"] },
+        { id: "init", name: "init" },
+        { id: "fail-step", name: "fail-step", dependsOn: ["init"] },
+        { id: "fetch-a", name: "fetch-a", dependsOn: ["init"] },
+        {
+          id: "aggregate",
+          name: "aggregate",
+          dependsOn: ["fail-step", "fetch-a"],
+        },
       ];
 
       try {
@@ -447,8 +430,13 @@ exit 1
       }
     });
 
-    it("should handle step instances (parallel execution)", async () => {
-      const steps: StepDefinition[] = [{ name: "init", instances: 3 }];
+    it("should handle parallel execution with multiple step IDs", async () => {
+      // Flow generates explicit IDs for parallel execution
+      const steps: StepDefinition[] = [
+        { id: "init-0", name: "init" },
+        { id: "init-1", name: "init" },
+        { id: "init-2", name: "init" },
+      ];
 
       const results = await executeStepsDAG(
         steps,
@@ -464,11 +452,11 @@ exit 1
         },
       );
 
-      // Should execute 3 instances (sequences 0, 1, 2)
+      // Should execute 3 steps
       expect(results).to.have.lengthOf(3);
 
-      const sequences = results.map((r) => r.sequence).sort();
-      expect(sequences).to.deep.equal([0, 1, 2]);
+      const ids = results.map((r) => r.id).sort();
+      expect(ids).to.deep.equal(["init-0", "init-1", "init-2"]);
 
       // All instances should succeed
       for (const result of results) {
@@ -515,7 +503,9 @@ exit 0
       );
       await chmod(stepScript, 0o755);
 
-      const steps: StepDefinition[] = [{ name: "retry-step", maxRetries: 3 }];
+      const steps: StepDefinition[] = [
+        { id: "retry-step", name: "retry-step", maxRetries: 3 },
+      ];
 
       const results = await executeStepsDAG(
         steps,
@@ -560,7 +550,9 @@ exit 1
       );
       await chmod(stepScript, 0o755);
 
-      const steps: StepDefinition[] = [{ name: "always-fail", maxRetries: 2 }];
+      const steps: StepDefinition[] = [
+        { id: "always-fail", name: "always-fail", maxRetries: 2 },
+      ];
 
       try {
         await executeStepsDAG(

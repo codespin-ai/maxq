@@ -22,9 +22,9 @@ case "$MAXQ_COMPLETED_STAGE" in
 
     schedule_stage "data-fetch" "false" '[
       {
+        "id": "fetch-news",
         "name": "fetch_news",
         "dependsOn": [],
-        "instances": 1,
         "maxRetries": 3,
         "env": {
           "SOURCE": "reuters",
@@ -32,9 +32,9 @@ case "$MAXQ_COMPLETED_STAGE" in
         }
       },
       {
+        "id": "fetch-prices",
         "name": "fetch_prices",
         "dependsOn": [],
-        "instances": 1,
         "maxRetries": 3,
         "env": {
           "SYMBOL": "AAPL",
@@ -46,23 +46,58 @@ case "$MAXQ_COMPLETED_STAGE" in
 
   "data-fetch")
     # Data fetched - analyze in parallel
+    # Flow generates 4 sentiment analyzer steps for parallel processing
     log_info "Data fetch complete, scheduling analysis stage"
 
     schedule_stage "analysis" "false" '[
       {
+        "id": "sentiment-0",
         "name": "analyze_sentiment",
-        "dependsOn": ["fetch_news"],
-        "instances": 4,
+        "dependsOn": ["fetch-news"],
         "maxRetries": 2,
         "env": {
           "MODEL": "sentiment-v2",
-          "BATCH_SIZE": "10"
+          "BATCH_SIZE": "10",
+          "SHARD": "0"
         }
       },
       {
+        "id": "sentiment-1",
+        "name": "analyze_sentiment",
+        "dependsOn": ["fetch-news"],
+        "maxRetries": 2,
+        "env": {
+          "MODEL": "sentiment-v2",
+          "BATCH_SIZE": "10",
+          "SHARD": "1"
+        }
+      },
+      {
+        "id": "sentiment-2",
+        "name": "analyze_sentiment",
+        "dependsOn": ["fetch-news"],
+        "maxRetries": 2,
+        "env": {
+          "MODEL": "sentiment-v2",
+          "BATCH_SIZE": "10",
+          "SHARD": "2"
+        }
+      },
+      {
+        "id": "sentiment-3",
+        "name": "analyze_sentiment",
+        "dependsOn": ["fetch-news"],
+        "maxRetries": 2,
+        "env": {
+          "MODEL": "sentiment-v2",
+          "BATCH_SIZE": "10",
+          "SHARD": "3"
+        }
+      },
+      {
+        "id": "calc-trends",
         "name": "calculate_trends",
-        "dependsOn": ["fetch_prices"],
-        "instances": 1,
+        "dependsOn": ["fetch-prices"],
         "maxRetries": 2,
         "env": {
           "ALGORITHM": "moving-average"
@@ -77,9 +112,9 @@ case "$MAXQ_COMPLETED_STAGE" in
 
     schedule_stage "reporting" "true" '[
       {
+        "id": "report",
         "name": "generate_report",
-        "dependsOn": ["analyze_sentiment", "calculate_trends"],
-        "instances": 1,
+        "dependsOn": ["sentiment-0", "sentiment-1", "sentiment-2", "sentiment-3", "calc-trends"],
         "maxRetries": 1,
         "env": {
           "FORMAT": "pdf",

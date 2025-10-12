@@ -1,6 +1,6 @@
 /**
  * MaxQ Core Tables Migration
- * Creates: run, stage, step, artifact tables
+ * Creates: run, stage, step tables
  */
 
 /**
@@ -53,7 +53,7 @@ export async function up(knex) {
 
   // Create step table
   await knex.schema.createTable("step", (table) => {
-    table.text("id").primary();
+    table.text("id").primary(); // Unique step ID supplied by flow (e.g., "fetch-news", "analyzer-0")
     table
       .text("run_id")
       .notNullable()
@@ -66,15 +66,14 @@ export async function up(knex) {
       .references("id")
       .inTable("stage")
       .onDelete("CASCADE");
-    table.text("name").notNullable();
-    table.integer("sequence").notNullable();
+    table.text("name").notNullable(); // Step script directory name (e.g., "fetch_news", "analyzer")
     table.text("status").notNullable(); // pending, running, completed, failed, cancelled
-    table.jsonb("depends_on").notNullable(); // Array of step names
+    table.jsonb("depends_on").notNullable(); // Array of step IDs: ["fetch-news", "fetch-prices"]
     table.integer("retry_count").notNullable().defaultTo(0);
     table.integer("max_retries").notNullable();
-    table.jsonb("env");
-    table.jsonb("output");
-    table.jsonb("error");
+    table.jsonb("env"); // Environment variables
+    table.jsonb("fields"); // Step fields posted via POST /runs/{runId}/steps/{stepId}/fields
+    table.jsonb("error"); // Error details
     table.bigInteger("created_at").notNullable();
     table.bigInteger("started_at");
     table.bigInteger("completed_at");
@@ -87,43 +86,7 @@ export async function up(knex) {
     table.index("stage_id", "idx_step_stage_id");
     table.index("status", "idx_step_status");
     table.index(["run_id", "name"], "idx_step_name");
-    table.unique(["run_id", "name", "sequence"], {
-      indexName: "idx_step_run_name_seq",
-    });
-  });
-
-  // Create artifact table
-  await knex.schema.createTable("artifact", (table) => {
-    table.text("id").primary();
-    table
-      .text("run_id")
-      .notNullable()
-      .references("id")
-      .inTable("run")
-      .onDelete("CASCADE");
-    table
-      .text("step_id")
-      .notNullable()
-      .references("id")
-      .inTable("step")
-      .onDelete("CASCADE");
-    table.text("step_name").notNullable(); // Denormalized for queries
-    table.integer("sequence").notNullable(); // Denormalized for queries
-    table.text("name").notNullable();
-    table.text("full_path").notNullable(); // step_name[sequence]/name
-    table.jsonb("value").notNullable();
-    table.specificType("tags", "text[]");
-    table.jsonb("metadata");
-    table.bigInteger("created_at").notNullable();
-
-    // Indexes
-    table.index("run_id", "idx_artifact_run_id");
-    table.index("step_id", "idx_artifact_step_id");
-    table.index(["run_id", "step_name"], "idx_artifact_step_name");
-    table.index(["run_id", "name"], "idx_artifact_name");
-    table.index(["run_id", "full_path"], "idx_artifact_full_path");
-    table.index("tags", "idx_artifact_tags", "GIN");
-    table.index("created_at", "idx_artifact_created_at");
+    table.unique(["run_id", "id"], { indexName: "idx_step_id" }); // Enforce ID uniqueness within run
   });
 }
 
@@ -132,7 +95,6 @@ export async function up(knex) {
  * @returns { Promise<void> }
  */
 export async function down(knex) {
-  await knex.schema.dropTableIfExists("artifact");
   await knex.schema.dropTableIfExists("step");
   await knex.schema.dropTableIfExists("stage");
   await knex.schema.dropTableIfExists("run");

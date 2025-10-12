@@ -1,6 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
-import { type RunDbRow } from "@codespin/maxq-db";
+import { schema } from "@codespin/maxq-db";
+import { executeUpdate, executeSelect } from "@webpods/tinqer-sql-pg-promise";
 import type { DataContext } from "../data-context.js";
 import type { Run, UpdateRunInput } from "../../types.js";
 import { mapRunFromDb } from "../../mappers.js";
@@ -21,54 +22,70 @@ export async function updateRun(
   input: UpdateRunInput,
 ): Promise<Result<Run, Error>> {
   try {
-    // Build SET clause dynamically
-    const updates: string[] = [];
-    const params: Record<string, unknown> = { id };
-
-    if (input.status !== undefined) {
-      updates.push("status = ${status}");
-      params.status = input.status;
-    }
-    if (input.output !== undefined) {
-      updates.push("output = ${output}");
-      params.output = input.output;
-    }
-    if (input.error !== undefined) {
-      updates.push("error = ${error}");
-      params.error = input.error;
-    }
-    if (input.startedAt !== undefined) {
-      updates.push("started_at = ${startedAt}");
-      params.startedAt = input.startedAt;
-    }
-    if (input.completedAt !== undefined) {
-      updates.push("completed_at = ${completedAt}");
-      params.completedAt = input.completedAt;
-    }
-    if (input.stdout !== undefined) {
-      updates.push("stdout = ${stdout}");
-      params.stdout = input.stdout;
-    }
-    if (input.stderr !== undefined) {
-      updates.push("stderr = ${stderr}");
-      params.stderr = input.stderr;
-    }
-
-    // Calculate duration if both started and completed times are present
-    if (input.startedAt && input.completedAt) {
-      updates.push("duration_ms = ${durationMs}");
-      params.durationMs = input.completedAt - input.startedAt;
-    }
-
-    if (updates.length === 0) {
+    if (Object.keys(input).length === 0) {
       return failure(new Error("No fields to update"));
     }
 
-    const sql = `UPDATE run SET ${updates.join(", ")} WHERE id = \${id} RETURNING *`;
-    const row = await ctx.db.oneOrNone<RunDbRow>(sql, params);
+    // Fetch current row to get existing values
+    const existingRows = await executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("run").where((r) => r.id === p.id),
+      { id },
+    );
 
-    if (!row) {
+    const existing = existingRows[0];
+    if (!existing) {
       return failure(new Error("Run not found"));
+    }
+
+    // Calculate final values using new or existing
+    const finalStartedAt = input.startedAt ?? existing.started_at;
+    const finalCompletedAt = input.completedAt ?? existing.completed_at;
+    const finalDurationMs =
+      input.startedAt && input.completedAt
+        ? input.completedAt - input.startedAt
+        : input.startedAt && existing.completed_at
+          ? existing.completed_at - input.startedAt
+          : input.completedAt && existing.started_at
+            ? input.completedAt - existing.started_at
+            : existing.duration_ms;
+
+    // Update with object literal - all values passed via params
+    const rows = await executeUpdate(
+      ctx.db,
+      schema,
+      (q, p) =>
+        q
+          .update("run")
+          .set({
+            status: p.status,
+            output: p.output,
+            error: p.error,
+            started_at: p.startedAt,
+            completed_at: p.completedAt,
+            duration_ms: p.durationMs,
+            stdout: p.stdout,
+            stderr: p.stderr,
+          })
+          .where((r) => r.id === p.id)
+          .returning((r) => r),
+      {
+        id,
+        status: input.status ?? existing.status,
+        output: input.output ?? existing.output,
+        error: input.error ?? existing.error,
+        startedAt: finalStartedAt,
+        completedAt: finalCompletedAt,
+        durationMs: finalDurationMs,
+        stdout: input.stdout ?? existing.stdout,
+        stderr: input.stderr ?? existing.stderr,
+      },
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return failure(new Error("Run not found after update"));
     }
 
     logger.info("Updated run", { id, updates: Object.keys(input) });
