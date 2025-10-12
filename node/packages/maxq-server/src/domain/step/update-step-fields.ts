@@ -40,7 +40,7 @@ export async function updateStepFields(
           .where((s) => s.run_id === p.runId && s.id === p.stepId)
           .returning((s) => s),
       {
-        fields: JSON.stringify(fields),
+        fields: JSON.stringify(fields), // Must stringify for JSONB column
         status,
         completedAt: now,
         durationMs: null, // Will be calculated if needed

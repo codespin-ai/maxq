@@ -129,22 +129,37 @@ export async function startRun(
 
 /**
  * Update run status in database
+ * Sets startedAt when transitioning to "running"
  */
 async function updateRunStatus(
   db: IDatabase<unknown>,
   runId: string,
   status: "pending" | "running" | "completed" | "failed",
 ): Promise<void> {
-  await executeUpdate(
-    db,
-    schema,
-    (q, p) =>
-      q
-        .update("run")
-        .set({ status: p.status })
-        .where((r) => r.id === p.runId),
-    { runId, status },
-  );
+  // Set startedAt when transitioning to running per spec §8.1
+  if (status === "running") {
+    await executeUpdate(
+      db,
+      schema,
+      (q, p) =>
+        q
+          .update("run")
+          .set({ status: p.status, started_at: p.startedAt })
+          .where((r) => r.id === p.runId),
+      { runId, status, startedAt: Date.now() },
+    );
+  } else {
+    await executeUpdate(
+      db,
+      schema,
+      (q, p) =>
+        q
+          .update("run")
+          .set({ status: p.status })
+          .where((r) => r.id === p.runId),
+      { runId, status },
+    );
+  }
 }
 
 /**
