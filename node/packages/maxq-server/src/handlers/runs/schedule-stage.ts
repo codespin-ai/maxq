@@ -179,15 +179,83 @@ export function scheduleStageHandler(ctx: DataContext) {
             completedAt: Date.now(),
           });
         },
-      ).catch((error) => {
-        logger.error("Stage execution failed", {
-          runId,
-          stageId,
-          stageName: input.stage,
-          error,
+      )
+        .then(async () => {
+          // All steps completed successfully
+          logger.info("Stage completed successfully", {
+            runId,
+            stageId,
+            stageName: input.stage,
+            final: input.final,
+          });
+
+          // Mark stage as completed
+          const { updateStage } = await import(
+            "../../domain/stage/update-stage.js"
+          );
+          await updateStage(ctx, stageId, {
+            status: "completed",
+            completedAt: Date.now(),
+          });
+
+          // If final stage, mark run as completed
+          if (input.final) {
+            logger.info("Final stage completed, marking run as completed", {
+              runId,
+            });
+            const { updateRun } = await import(
+              "../../domain/run/update-run.js"
+            );
+            await updateRun(ctx, runId, {
+              status: "completed",
+              completedAt: Date.now(),
+            });
+          } else {
+            // Non-final stage: call flow with MAXQ_COMPLETED_STAGE
+            logger.info(
+              "Non-final stage completed, calling flow for next stage",
+              {
+                runId,
+                completedStage: input.stage,
+              },
+            );
+            const { executeFlowStageCompleted } = await import(
+              "../../executor/flow-executor.js"
+            );
+            await executeFlowStageCompleted({
+              runId,
+              flowName,
+              flowsRoot: ctx.executor.config.flowsRoot,
+              apiUrl: ctx.executor.apiUrl,
+              maxLogCapture: ctx.executor.config.maxLogCapture,
+              completedStage: input.stage,
+            });
+          }
+        })
+        .catch(async (error) => {
+          logger.error("Stage execution failed", {
+            runId,
+            stageId,
+            stageName: input.stage,
+            error,
+          });
+
+          // Mark stage as failed
+          const { updateStage } = await import(
+            "../../domain/stage/update-stage.js"
+          );
+          await updateStage(ctx, stageId, {
+            status: "failed",
+            completedAt: Date.now(),
+          });
+
+          // Mark run as failed
+          const { updateRun } = await import("../../domain/run/update-run.js");
+          await updateRun(ctx, runId, {
+            status: "failed",
+            completedAt: Date.now(),
+          });
         });
-        // TODO: Mark stage as failed, call flow.sh with MAXQ_FAILED_STAGE
-      });
 
       // Return response immediately (execution happens in background)
       res.status(201).json({
