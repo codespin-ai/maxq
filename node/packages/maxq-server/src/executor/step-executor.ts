@@ -3,6 +3,7 @@
  * Executes steps respecting dependencies with configurable concurrency
  */
 
+import * as path from "node:path";
 import { createLogger } from "@codespin/maxq-logger";
 import type { ProcessResult } from "./types.js";
 import { buildStepPath } from "./security.js";
@@ -107,10 +108,12 @@ export async function executeStep(
   logger.debug("Spawning step process", { stepPath, env });
 
   // Spawn step.sh and capture output
+  // Per spec §5.4: steps run from {flowsRoot}/{flowName}/steps/{stepName}
+  const stepCwd = cwd || path.join(flowsRoot, flowName, "steps", stepName);
   const processResult = await spawnProcess(
     stepPath,
     env,
-    cwd || flowsRoot,
+    stepCwd,
     maxLogCapture,
   );
 
@@ -205,7 +208,7 @@ export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
  * @param apiUrl - API URL for callbacks
  * @param maxLogCapture - Max bytes to capture from stdout/stderr
  * @param maxConcurrentSteps - Max concurrent step executions
- * @param onStepComplete - Callback when step completes (for storing in DB)
+ * @param onStepComplete - Callback when step completes (returns final status from DB)
  * @returns Array of all step execution results
  */
 export async function executeStepsDAG(
@@ -217,7 +220,9 @@ export async function executeStepsDAG(
   apiUrl: string,
   maxLogCapture: number,
   maxConcurrentSteps: number,
-  onStepComplete: (result: StepExecutionResult) => Promise<void>,
+  onStepComplete: (
+    result: StepExecutionResult,
+  ) => Promise<{ finalStatus: "completed" | "failed" }>,
 ): Promise<StepExecutionResult[]> {
   logger.info("Executing steps with DAG", {
     runId,
@@ -261,6 +266,7 @@ export async function executeStepsDAG(
       maxConcurrentSteps,
       async (exec) => {
         let lastError: ProcessResult | null = null;
+        let finalStatus: "completed" | "failed" = "failed";
 
         // Retry loop
         for (
@@ -299,12 +305,14 @@ export async function executeStepsDAG(
             retryCount: exec.retryCount,
           };
 
-          // Store result after each attempt (including retries)
-          await onStepComplete(result);
+          // Store result after each attempt and get final status from DB
+          // The callback checks /fields POST and returns authoritative status per spec §5.5
+          const { finalStatus: statusFromDb } = await onStepComplete(result);
+          finalStatus = statusFromDb;
 
-          if (processResult.exitCode === 0) {
+          if (statusFromDb === "completed") {
             exec.status = "completed";
-            return result;
+            return { result, finalStatus };
           } else {
             lastError = processResult;
             exec.status = "failed";
@@ -319,25 +327,29 @@ export async function executeStepsDAG(
         });
 
         return {
-          id: exec.id,
-          name: exec.name,
-          processResult: lastError!,
-          retryCount: exec.retryCount,
+          result: {
+            id: exec.id,
+            name: exec.name,
+            processResult: lastError!,
+            retryCount: exec.retryCount,
+          },
+          finalStatus,
         };
       },
     );
 
-    allResults.push(...levelResults);
+    allResults.push(...levelResults.map((r) => r.result));
 
-    // Check if any step failed in this level
-    const failedSteps = levelResults.filter(
-      (r) => r.processResult.exitCode !== 0,
-    );
+    // Check if any step failed in this level (use final status from DB, not exit code)
+    // Per spec §5.5: fields.status is authoritative signal
+    const failedSteps = levelResults.filter((r) => r.finalStatus === "failed");
     if (failedSteps.length > 0) {
       logger.error("Steps failed in level, aborting stage", {
         level: levelIndex + 1,
         failedCount: failedSteps.length,
-        failedSteps: failedSteps.map((r) => `${r.id} (${r.name})`),
+        failedSteps: failedSteps.map(
+          (r) => `${r.result.id} (${r.result.name})`,
+        ),
       });
       throw new Error(
         `Stage failed: ${failedSteps.length} step(s) failed in level ${levelIndex + 1}`,
@@ -369,7 +381,7 @@ async function executeWithConcurrency<T, R>(
   executor: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results: (R | undefined)[] = new Array(items.length);
-  const executing: Promise<void>[] = [];
+  const executing = new Map<number, Promise<void>>();
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -379,19 +391,17 @@ async function executeWithConcurrency<T, R>(
 
     const promise = executor(item).then((result) => {
       results[i] = result;
+      executing.delete(i); // Remove self when complete
     });
 
-    executing.push(promise);
+    executing.set(i, promise);
 
-    if (executing.length >= maxConcurrency) {
-      await Promise.race(executing);
-      const completedIndex = executing.findIndex((p) => p === promise);
-      if (completedIndex !== -1) {
-        executing.splice(completedIndex, 1);
-      }
+    if (executing.size >= maxConcurrency) {
+      // Wait for any promise to complete (it will remove itself via .delete())
+      await Promise.race(executing.values());
     }
   }
 
-  await Promise.all(executing);
+  await Promise.all(executing.values());
   return results.filter((r): r is R => r !== undefined);
 }

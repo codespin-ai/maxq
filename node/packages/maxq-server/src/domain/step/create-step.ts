@@ -46,9 +46,9 @@ export async function createStep(
         runId: input.runId,
         stageId: input.stageId,
         name: input.name,
-        dependsOn: JSON.stringify(input.dependsOn),
+        dependsOn: JSON.stringify(input.dependsOn), // Must stringify for JSONB column
         maxRetries: input.maxRetries,
-        env: input.env ? JSON.stringify(input.env) : null,
+        env: input.env ? JSON.stringify(input.env) : null, // Must stringify for JSONB column
         createdAt: now,
       },
     );
