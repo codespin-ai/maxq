@@ -135,38 +135,36 @@ export async function executeStep(
  * @throws Error if circular dependencies detected
  */
 export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
-  const stepMap = new Map(steps.map((s) => [s.name, s]));
+  const stepMap = new Map(steps.map((s) => [s.id, s]));
   const inDegree = new Map<string, number>();
   const adjList = new Map<string, string[]>();
 
   // Initialize in-degree and adjacency list
   for (const step of steps) {
-    inDegree.set(step.name, 0);
-    adjList.set(step.name, []);
+    inDegree.set(step.id, 0);
+    adjList.set(step.id, []);
   }
 
   // Build graph
   for (const step of steps) {
     const deps = step.dependsOn || [];
-    inDegree.set(step.name, deps.length);
+    inDegree.set(step.id, deps.length);
 
     for (const dep of deps) {
       if (!stepMap.has(dep)) {
-        throw new Error(`Step "${step.name}" depends on unknown step "${dep}"`);
+        throw new Error(`Step "${step.id}" depends on unknown step "${dep}"`);
       }
-      adjList.get(dep)!.push(step.name);
+      adjList.get(dep)!.push(step.id);
     }
   }
 
   // Topological sort with levels (for parallel execution)
   const result: StepDefinition[][] = [];
-  const remaining = new Set(steps.map((s) => s.name));
+  const remaining = new Set(steps.map((s) => s.id));
 
   while (remaining.size > 0) {
     // Find all steps with no remaining dependencies
-    const ready = Array.from(remaining).filter(
-      (name) => inDegree.get(name) === 0,
-    );
+    const ready = Array.from(remaining).filter((id) => inDegree.get(id) === 0);
 
     if (ready.length === 0) {
       throw new Error(
@@ -175,12 +173,12 @@ export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
     }
 
     // Add ready steps to current level
-    result.push(ready.map((name) => stepMap.get(name)!));
+    result.push(ready.map((id) => stepMap.get(id)!));
 
     // Remove ready steps and update in-degrees
-    for (const name of ready) {
-      remaining.delete(name);
-      for (const dependent of adjList.get(name)!) {
+    for (const id of ready) {
+      remaining.delete(id);
+      for (const dependent of adjList.get(id)!) {
         inDegree.set(dependent, inDegree.get(dependent)! - 1);
       }
     }

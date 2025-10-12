@@ -164,8 +164,20 @@ export function scheduleStageHandler(ctx: DataContext) {
             stepName: result.name,
             exitCode: result.processResult.exitCode,
           });
-          // TODO: Store step result in database
-          // This should call updateStep to store stdout/stderr/status
+
+          // Update step with execution results
+          const { updateStep } = await import(
+            "../../domain/step/update-step.js"
+          );
+          const status =
+            result.processResult.exitCode === 0 ? "completed" : "failed";
+          await updateStep(ctx, result.id, {
+            status,
+            stdout: result.processResult.stdout,
+            stderr: result.processResult.stderr,
+            retryCount: result.retryCount,
+            completedAt: Date.now(),
+          });
         },
       ).catch((error) => {
         logger.error("Stage execution failed", {
