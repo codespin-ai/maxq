@@ -184,6 +184,7 @@ export function scheduleStageHandler(ctx: DataContext) {
         ctx.executor.apiUrl,
         ctx.executor.config.maxLogCapture,
         ctx.executor.config.maxConcurrentSteps,
+        ctx.executor.processRegistry,
         async (result) => {
           // Step completion callback - update step in database
           logger.debug("Step completed", {

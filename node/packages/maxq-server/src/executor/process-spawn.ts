@@ -20,6 +20,7 @@ const logger = createLogger("maxq:executor:process-spawn");
  * @param env - Environment variables for the process
  * @param cwd - Working directory for the process
  * @param maxLogCapture - Maximum bytes to capture from each stream
+ * @param onSpawn - Optional callback called immediately after process spawns with ChildProcess
  * @returns Process execution result
  */
 export async function spawnProcess(
@@ -27,6 +28,7 @@ export async function spawnProcess(
   env: Record<string, string>,
   cwd: string,
   maxLogCapture: number = 8192,
+  onSpawn?: (proc: ReturnType<typeof spawn>) => void,
 ): Promise<ProcessResult> {
   const startTime = Date.now();
 
@@ -49,6 +51,11 @@ export async function spawnProcess(
       stdio: ["ignore", "pipe", "pipe"],
       shell: false, // CRITICAL: Never enable shell
     });
+
+    // Call onSpawn callback if provided (for process registration)
+    if (onSpawn) {
+      onSpawn(proc);
+    }
 
     let stdout = "";
     let stderr = "";

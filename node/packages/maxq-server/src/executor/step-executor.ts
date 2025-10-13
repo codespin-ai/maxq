@@ -8,6 +8,7 @@ import { createLogger } from "@codespin/maxq-logger";
 import type { ProcessResult } from "./types.js";
 import { buildStepPath } from "./security.js";
 import { spawnProcess } from "./process-spawn.js";
+import type { StepProcessRegistry } from "./process-registry.js";
 
 const logger = createLogger("maxq:executor:step");
 
@@ -57,6 +58,7 @@ export type StepExecutionInput = {
   flowsRoot: string;
   apiUrl: string;
   maxLogCapture: number;
+  processRegistry: StepProcessRegistry;
   env?: Record<string, string>;
   cwd?: string;
 };
@@ -79,6 +81,7 @@ export async function executeStep(
     flowsRoot,
     apiUrl,
     maxLogCapture,
+    processRegistry,
     env: userEnv,
     cwd,
   } = input;
@@ -115,7 +118,14 @@ export async function executeStep(
     env,
     stepCwd,
     maxLogCapture,
+    (proc) => {
+      // Register process immediately after spawn
+      processRegistry.register(runId, stepId, proc);
+    },
   );
+
+  // Unregister process after completion
+  processRegistry.unregister(runId, stepId);
 
   logger.debug("Step process completed", {
     stepId,
@@ -208,6 +218,7 @@ export function resolveDAG(steps: StepDefinition[]): StepDefinition[][] {
  * @param apiUrl - API URL for callbacks
  * @param maxLogCapture - Max bytes to capture from stdout/stderr
  * @param maxConcurrentSteps - Max concurrent step executions
+ * @param processRegistry - Process registry for tracking running processes
  * @param onStepComplete - Callback when step completes (returns final status from DB)
  * @returns Array of all step execution results
  */
@@ -220,6 +231,7 @@ export async function executeStepsDAG(
   apiUrl: string,
   maxLogCapture: number,
   maxConcurrentSteps: number,
+  processRegistry: StepProcessRegistry,
   onStepComplete: (
     result: StepExecutionResult,
   ) => Promise<{ finalStatus: "completed" | "failed" }>,
@@ -295,6 +307,7 @@ export async function executeStepsDAG(
             flowsRoot,
             apiUrl,
             maxLogCapture,
+            processRegistry,
             env: exec.env,
           });
 

@@ -34,6 +34,8 @@ export { discoverFlows, getFlow, resolveStepPath } from "./flow-discovery.js";
 
 export { spawnProcess } from "./process-spawn.js";
 
+export { StepProcessRegistry } from "./process-registry.js";
+
 export {
   validateName,
   resolveSafePath,

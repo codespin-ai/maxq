@@ -39,6 +39,7 @@ export type RunDbRow = {
   name: string | null;
   description: string | null;
   flow_title: string | null;
+  termination_reason: string | null;
 };
 
 // Stage table row (exact database schema with snake_case)
@@ -49,7 +50,9 @@ export type StageDbRow = {
   final: boolean;
   status: StageStatus;
   created_at: number;
+  started_at: number | null;
   completed_at: number | null;
+  termination_reason: string | null;
 };
 
 // Step table row (exact database schema with snake_case)
@@ -71,6 +74,25 @@ export type StepDbRow = {
   duration_ms: number | null;
   stdout: string | null;
   stderr: string | null;
+  termination_reason: string | null;
+};
+
+// Run log entity types
+export type RunLogEntityType = "run" | "stage" | "step";
+
+// Run log level types
+export type RunLogLevel = "debug" | "info" | "warn" | "error";
+
+// Run log table row (exact database schema with snake_case)
+export type RunLogDbRow = {
+  id: string; // UUID
+  run_id: string;
+  entity_type: RunLogEntityType;
+  entity_id: string | null; // stage_id or step_id, null for run-level logs
+  level: RunLogLevel;
+  message: string;
+  metadata: unknown | null; // Additional structured data (JSONB)
+  created_at: number;
 };
 
 // Complete database schema for Tinqer
@@ -78,4 +100,5 @@ export type DatabaseSchema = {
   run: RunDbRow;
   stage: StageDbRow;
   step: StepDbRow;
+  run_log: RunLogDbRow;
 };

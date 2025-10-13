@@ -26,6 +26,7 @@ export async function up(knex) {
     table.text("name"); // Run display name (set by flow via API)
     table.text("description"); // Run display description (set by flow via API)
     table.text("flow_title"); // Flow display title (from flow.yaml)
+    table.text("termination_reason"); // Reason for termination: 'aborted', 'server_restart', etc.
 
     // Indexes
     table.index("flow_name", "idx_run_flow_name");
@@ -46,7 +47,9 @@ export async function up(knex) {
     table.boolean("final").notNullable();
     table.text("status").notNullable(); // pending, running, completed, failed
     table.bigInteger("created_at").notNullable();
+    table.bigInteger("started_at");
     table.bigInteger("completed_at");
+    table.text("termination_reason"); // Reason for termination: 'aborted', 'server_restart', etc.
 
     // Indexes
     table.index("run_id", "idx_stage_run_id");
@@ -83,6 +86,7 @@ export async function up(knex) {
     table.bigInteger("duration_ms");
     table.text("stdout"); // Captured stdout from step.sh process
     table.text("stderr"); // Captured stderr from step.sh process
+    table.text("termination_reason"); // Reason for termination: 'aborted', 'server_restart', etc.
 
     // Indexes
     table.index("run_id", "idx_step_run_id");
@@ -91,6 +95,30 @@ export async function up(knex) {
     table.index(["run_id", "name"], "idx_step_name");
     table.unique(["run_id", "id"], { indexName: "idx_step_id" }); // Enforce ID uniqueness within run
   });
+
+  // Create run_log table
+  await knex.schema.createTable("run_log", (table) => {
+    table.uuid("id").primary();
+    table
+      .text("run_id")
+      .notNullable()
+      .references("id")
+      .inTable("run")
+      .onDelete("CASCADE");
+    table.text("entity_type").notNullable().checkIn(["run", "stage", "step"]); // Type of entity this log relates to
+    table.text("entity_id"); // Specific entity ID (stage_id or step_id), null for run-level logs
+    table
+      .text("level")
+      .notNullable()
+      .checkIn(["debug", "info", "warn", "error"]);
+    table.text("message").notNullable();
+    table.jsonb("metadata"); // Additional structured data
+    table.bigInteger("created_at").notNullable();
+
+    // Indexes
+    table.index(["run_id", "created_at"], "idx_run_log_run_id_created_at");
+    table.index(["run_id", "entity_type"], "idx_run_log_entity");
+  });
 }
 
 /**
@@ -98,6 +126,7 @@ export async function up(knex) {
  * @returns { Promise<void> }
  */
 export async function down(knex) {
+  await knex.schema.dropTableIfExists("run_log");
   await knex.schema.dropTableIfExists("step");
   await knex.schema.dropTableIfExists("stage");
   await knex.schema.dropTableIfExists("run");
