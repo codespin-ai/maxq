@@ -75,6 +75,11 @@ export type StepDbRow = {
   stdout: string | null;
   stderr: string | null;
   termination_reason: string | null;
+  // Scheduler fields
+  queued_at: number | null;
+  claimed_at: number | null;
+  heartbeat_at: number | null;
+  worker_id: string | null;
 };
 
 // Run log entity types

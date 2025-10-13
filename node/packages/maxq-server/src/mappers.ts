@@ -111,6 +111,10 @@ export function mapStepFromDb(row: StepDbRow): Step {
     stdout: row.stdout ?? undefined,
     stderr: row.stderr ?? undefined,
     terminationReason: row.termination_reason ?? undefined,
+    queuedAt: row.queued_at ?? undefined,
+    claimedAt: row.claimed_at ?? undefined,
+    heartbeatAt: row.heartbeat_at ?? undefined,
+    workerId: row.worker_id ?? undefined,
   };
 }
 
@@ -136,6 +140,10 @@ export function mapStepToDb(step: Partial<Step>): Partial<StepDbRow> {
   if (step.stderr !== undefined) dbRow.stderr = step.stderr;
   if (step.terminationReason !== undefined)
     dbRow.termination_reason = step.terminationReason;
+  if (step.queuedAt !== undefined) dbRow.queued_at = step.queuedAt;
+  if (step.claimedAt !== undefined) dbRow.claimed_at = step.claimedAt;
+  if (step.heartbeatAt !== undefined) dbRow.heartbeat_at = step.heartbeatAt;
+  if (step.workerId !== undefined) dbRow.worker_id = step.workerId;
 
   return dbRow;
 }

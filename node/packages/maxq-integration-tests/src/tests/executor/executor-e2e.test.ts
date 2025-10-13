@@ -56,6 +56,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(0);
@@ -86,6 +87,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(0);
@@ -115,6 +117,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
         completedStage: "previous-stage",
       });
 
@@ -143,6 +146,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
         failedStage: "failed-stage",
       });
 
@@ -171,6 +175,7 @@ exit 1
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(1);
@@ -196,6 +201,7 @@ echo "Not valid JSON"
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(0);

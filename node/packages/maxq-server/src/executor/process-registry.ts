@@ -1,5 +1,5 @@
 /**
- * Registry for tracking running step processes
+ * Registry for tracking running flow and step processes
  * Allows killing processes during abort or server shutdown
  */
 
@@ -8,33 +8,47 @@ import { createLogger } from "@codespin/maxq-logger";
 
 const logger = createLogger("maxq:executor:process-registry");
 
+export type ProcessType = "flow" | "step";
+
 export class StepProcessRegistry {
   private processes = new Map<string, ChildProcess>();
 
   /**
-   * Register a running step process
+   * Register a running process (flow or step)
    *
    * @param runId - Run ID
-   * @param stepId - Step ID
+   * @param type - Process type ("flow" or "step")
    * @param process - Child process object
+   * @param stepId - Step ID (required for type="step", ignored for type="flow")
    */
-  register(runId: string, stepId: string, process: ChildProcess): void {
-    const key = `${runId}:${stepId}`;
+  register(
+    runId: string,
+    type: ProcessType,
+    process: ChildProcess,
+    stepId?: string,
+  ): void {
+    const key = type === "flow" ? `${runId}:flow` : `${runId}:step:${stepId}`;
     this.processes.set(key, process);
-    logger.debug("Registered process", { runId, stepId, pid: process.pid });
+    logger.debug("Registered process", {
+      runId,
+      type,
+      stepId,
+      pid: process.pid,
+    });
   }
 
   /**
-   * Unregister a step process (called when process completes)
+   * Unregister a process (called when process completes)
    *
    * @param runId - Run ID
-   * @param stepId - Step ID
+   * @param type - Process type ("flow" or "step")
+   * @param stepId - Step ID (required for type="step", ignored for type="flow")
    */
-  unregister(runId: string, stepId: string): void {
-    const key = `${runId}:${stepId}`;
+  unregister(runId: string, type: ProcessType, stepId?: string): void {
+    const key = type === "flow" ? `${runId}:flow` : `${runId}:step:${stepId}`;
     const removed = this.processes.delete(key);
     if (removed) {
-      logger.debug("Unregistered process", { runId, stepId });
+      logger.debug("Unregistered process", { runId, type, stepId });
     }
   }
 
@@ -42,14 +56,20 @@ export class StepProcessRegistry {
    * Get all processes for a run
    *
    * @param runId - Run ID
-   * @returns Array of tuples [stepId, ChildProcess]
+   * @returns Array of tuples [type, stepId?, ChildProcess]
    */
-  getProcessesForRun(runId: string): Array<[string, ChildProcess]> {
-    const result: Array<[string, ChildProcess]> = [];
+  getProcessesForRun(
+    runId: string,
+  ): Array<[ProcessType, string | undefined, ChildProcess]> {
+    const result: Array<[ProcessType, string | undefined, ChildProcess]> = [];
     for (const [key, process] of this.processes.entries()) {
       if (key.startsWith(`${runId}:`)) {
-        const stepId = key.substring(runId.length + 1);
-        result.push([stepId, process]);
+        if (key === `${runId}:flow`) {
+          result.push(["flow", undefined, process]);
+        } else if (key.startsWith(`${runId}:step:`)) {
+          const stepId = key.substring(`${runId}:step:`.length);
+          result.push(["step", stepId, process]);
+        }
       }
     }
     return result;
@@ -77,18 +97,19 @@ export class StepProcessRegistry {
     });
 
     // Send SIGTERM to all processes
-    for (const [stepId, process] of processes) {
+    for (const [type, stepId, process] of processes) {
       try {
         if (process.pid) {
           logger.debug("Sending SIGTERM", {
             runId,
+            type,
             stepId,
             pid: process.pid,
           });
           process.kill("SIGTERM");
         }
       } catch (error) {
-        logger.warn("Failed to send SIGTERM", { runId, stepId, error });
+        logger.warn("Failed to send SIGTERM", { runId, type, stepId, error });
       }
     }
 
@@ -96,24 +117,25 @@ export class StepProcessRegistry {
     await new Promise((resolve) => setTimeout(resolve, graceMs));
 
     // Send SIGKILL to any surviving processes
-    for (const [stepId, process] of processes) {
+    for (const [type, stepId, process] of processes) {
       try {
         if (process.pid && !process.killed) {
           logger.warn("Escalating to SIGKILL", {
             runId,
+            type,
             stepId,
             pid: process.pid,
           });
           process.kill("SIGKILL");
         }
       } catch (error) {
-        logger.warn("Failed to send SIGKILL", { runId, stepId, error });
+        logger.warn("Failed to send SIGKILL", { runId, type, stepId, error });
       }
     }
 
     // Clean up registry entries
-    for (const [stepId] of processes) {
-      this.unregister(runId, stepId);
+    for (const [type, stepId] of processes) {
+      this.unregister(runId, type, stepId);
     }
 
     logger.info("Completed killing processes for run", { runId });

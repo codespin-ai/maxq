@@ -10,6 +10,7 @@ import type { IDatabase } from "pg-promise";
 import { createSchema } from "@webpods/tinqer";
 import { executeUpdate } from "@webpods/tinqer-sql-pg-promise";
 import type { DatabaseSchema } from "@codespin/maxq-db";
+import type { StepProcessRegistry } from "./process-registry.js";
 
 const logger = createLogger("maxq:executor:orchestrator");
 const schema = createSchema<DatabaseSchema>();
@@ -40,6 +41,7 @@ export type OrchestratorContext = {
   db: IDatabase<unknown>;
   config: ExecutorConfig;
   apiUrl: string;
+  processRegistry: StepProcessRegistry;
 };
 
 /**
@@ -80,6 +82,7 @@ export async function startRun(
         flowsRoot: ctx.config.flowsRoot,
         apiUrl: ctx.apiUrl,
         maxLogCapture: ctx.config.maxLogCapture,
+        processRegistry: ctx.processRegistry,
       });
 
       // Store flow stdout/stderr for debugging

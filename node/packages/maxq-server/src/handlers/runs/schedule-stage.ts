@@ -471,6 +471,7 @@ export function scheduleStageHandler(ctx: DataContext) {
               flowsRoot: ctx.executor.config.flowsRoot,
               apiUrl: ctx.executor.apiUrl,
               maxLogCapture: ctx.executor.config.maxLogCapture,
+              processRegistry: ctx.executor.processRegistry,
               completedStage: input.stage,
             });
           }
@@ -516,6 +517,7 @@ export function scheduleStageHandler(ctx: DataContext) {
               flowsRoot: ctx.executor.config.flowsRoot,
               apiUrl: ctx.executor.apiUrl,
               maxLogCapture: ctx.executor.config.maxLogCapture,
+              processRegistry: ctx.executor.processRegistry,
               failedStage: input.stage,
             });
           } catch (flowError) {

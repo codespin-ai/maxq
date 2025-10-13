@@ -120,12 +120,12 @@ export async function executeStep(
     maxLogCapture,
     (proc) => {
       // Register process immediately after spawn
-      processRegistry.register(runId, stepId, proc);
+      processRegistry.register(runId, "step", proc, stepId);
     },
   );
 
   // Unregister process after completion
-  processRegistry.unregister(runId, stepId);
+  processRegistry.unregister(runId, "step", stepId);
 
   logger.debug("Step process completed", {
     stepId,

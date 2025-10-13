@@ -65,6 +65,11 @@ export type Step = {
   stdout?: string;
   stderr?: string;
   terminationReason?: string;
+  // Scheduler fields
+  queuedAt?: number;
+  claimedAt?: number;
+  heartbeatAt?: number;
+  workerId?: string;
 };
 
 // Input types for creating entities

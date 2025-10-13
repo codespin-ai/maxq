@@ -147,6 +147,7 @@ export async function retryRun(
       db: ctx.db,
       config: ctx.executor.config,
       apiUrl: ctx.executor.apiUrl,
+      processRegistry: ctx.executor.processRegistry,
     };
 
     // Start run execution (non-blocking)
