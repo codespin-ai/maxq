@@ -386,8 +386,8 @@ describe("Runs API", () => {
     });
   });
 
-  describe("POST /api/v1/runs/:runId/resume", () => {
-    it("should resume an aborted workflow", async () => {
+  describe("POST /api/v1/runs/:runId/retry", () => {
+    it("should retry an aborted workflow", async () => {
       // Create, run, and abort a run
       const createResponse = await client.post<Run>("/api/v1/runs", {
         flowName: "test-flow",
@@ -400,24 +400,49 @@ describe("Runs API", () => {
 
       await client.post(`/api/v1/runs/${runId}/abort`, {});
 
-      // Resume the run
-      const response = await client.post<{ message: string }>(
-        `/api/v1/runs/${runId}/resume`,
+      // Retry the run
+      const response = await client.post<{ run: Run; message: string }>(
+        `/api/v1/runs/${runId}/retry`,
         {},
       );
 
       expect(response.status).to.equal(200);
       expect(response.data).to.have.property("message");
+      expect(response.data).to.have.property("run");
 
-      // Verify run is back to pending
-      const getResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
-      expect(getResponse.data).to.have.property("status", "pending");
-      expect(getResponse.data).to.not.have.property("terminationReason");
+      // Verify run is back to pending (using run from response, not GET)
+      // This avoids race condition with the orchestrator that starts immediately
+      expect(response.data.run).to.have.property("status", "pending");
+      expect(response.data.run).to.not.have.property("terminationReason");
+    });
+
+    it("should retry a failed workflow", async () => {
+      // Create a run and mark it as failed
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-flow",
+      });
+      const runId = createResponse.data.id;
+
+      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+        status: "failed",
+      });
+
+      // Retry the run
+      const response = await client.post<{ run: Run; message: string }>(
+        `/api/v1/runs/${runId}/retry`,
+        {},
+      );
+
+      expect(response.status).to.equal(200);
+      expect(response.data).to.have.property("message");
+      expect(response.data).to.have.property("run");
+      expect(response.data.run).to.have.property("status", "pending");
+      expect(response.data.run).to.not.have.property("terminationReason");
     });
 
     it("should return 404 for non-existent run", async () => {
       const response = await client.post<{ error: string }>(
-        "/api/v1/runs/non-existent-id/resume",
+        "/api/v1/runs/non-existent-id/retry",
         {},
       );
 
@@ -425,8 +450,8 @@ describe("Runs API", () => {
       expect(response.data).to.have.property("error");
     });
 
-    it("should return 400 for non-aborted run", async () => {
-      // Create a run that's not aborted
+    it("should return 409 for run still in progress", async () => {
+      // Create a run that's still running (not aborted)
       const createResponse = await client.post<Run>("/api/v1/runs", {
         flowName: "test-flow",
       });
@@ -436,14 +461,37 @@ describe("Runs API", () => {
         status: "running",
       });
 
-      // Try to resume non-aborted run
+      // Try to retry run that's still in progress
       const response = await client.post<{ error: string }>(
-        `/api/v1/runs/${runId}/resume`,
+        `/api/v1/runs/${runId}/retry`,
+        {},
+      );
+
+      expect(response.status).to.equal(409);
+      expect(response.data).to.have.property("error");
+      expect(response.data.error).to.include("still in progress");
+    });
+
+    it("should return 400 for completed run", async () => {
+      // Create and complete a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-flow",
+      });
+      const runId = createResponse.data.id;
+
+      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+        status: "completed",
+      });
+
+      // Try to retry completed run
+      const response = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/retry`,
         {},
       );
 
       expect(response.status).to.equal(400);
       expect(response.data).to.have.property("error");
+      expect(response.data.error).to.include("cannot be retried");
     });
   });
 

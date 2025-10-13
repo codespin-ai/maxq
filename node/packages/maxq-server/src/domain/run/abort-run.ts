@@ -82,12 +82,14 @@ export async function abortRun(
       });
     }
 
-    // Kill all running processes for this run
-    logger.info("Killing processes for run", { runId });
-    await ctx.executor.processRegistry.killProcessesForRun(runId, graceMs);
-
+    // BLOCKER FIX #3: Get process count BEFORE killing them
+    // killProcessesForRun unregisters processes, so we must capture count first
     const processCount =
       ctx.executor.processRegistry.getProcessesForRun(runId).length;
+
+    // Kill all running processes for this run
+    logger.info("Killing processes for run", { runId, processCount });
+    await ctx.executor.processRegistry.killProcessesForRun(runId, graceMs);
 
     // Create log entry for abort
     await createRunLog(ctx, {

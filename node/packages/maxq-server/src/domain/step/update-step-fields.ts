@@ -7,7 +7,8 @@ import { mapStepFromDb } from "../../mappers.js";
 
 /**
  * Update step with fields posted by step.sh
- * This marks the step as completed
+ * Fields are arbitrary JSON data - this does NOT affect step status
+ * Exit codes are the ONLY source of truth for step status
  */
 export async function updateStepFields(
   ctx: DataContext,
@@ -18,13 +19,8 @@ export async function updateStepFields(
   try {
     const now = Date.now();
 
-    // Determine status based on fields
-    const status =
-      typeof fields.status === "string" && fields.status === "failed"
-        ? ("failed" as const)
-        : ("completed" as const);
-
-    // Update step with fields and mark as completed
+    // Update step with fields only - DO NOT touch status
+    // Status is determined solely by exit code via the executor
     const rows = await executeUpdatePg(
       ctx.db,
       schema,
@@ -33,17 +29,13 @@ export async function updateStepFields(
           .update("step")
           .set({
             fields: p.fields,
-            status: p.status,
             completed_at: p.completedAt,
-            duration_ms: p.durationMs,
           })
           .where((s) => s.run_id === p.runId && s.id === p.stepId)
           .returning((s) => s),
       {
         fields: JSON.stringify(fields), // Must stringify for JSONB column
-        status,
         completedAt: now,
-        durationMs: null, // Will be calculated if needed
         runId,
         stepId,
       },

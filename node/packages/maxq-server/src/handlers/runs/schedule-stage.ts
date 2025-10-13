@@ -83,7 +83,33 @@ export function scheduleStageHandler(ctx: DataContext) {
         return;
       }
 
-      const flowName = runResult.data.flowName;
+      const run = runResult.data;
+      const flowName = run.flowName;
+
+      // Reject scheduling if run is aborted or completed
+      if (run.status === "failed" && run.terminationReason === "aborted") {
+        logger.warn("Cannot schedule stage for aborted run", {
+          runId,
+          stage: input.stage,
+          terminationReason: run.terminationReason,
+        });
+        res.status(400).json({
+          error: "Cannot schedule stages for aborted run",
+        });
+        return;
+      }
+
+      if (run.status === "completed" || run.status === "failed") {
+        logger.warn("Cannot schedule stage for completed/failed run", {
+          runId,
+          stage: input.stage,
+          status: run.status,
+        });
+        res.status(400).json({
+          error: `Cannot schedule stages for ${run.status} run`,
+        });
+        return;
+      }
 
       logger.info("Scheduling stage", {
         runId,
@@ -102,42 +128,183 @@ export function scheduleStageHandler(ctx: DataContext) {
           // Create transaction context with IDatabase-compatible interface
           const txCtx = { ...ctx, db: t as unknown as IDatabase<unknown> };
 
-          // Create stage record
-          const stageResult = await createStage(txCtx, {
-            runId,
-            name: input.stage,
-            final: input.final,
-          });
+          // Check if stage already exists (for retry scenario)
+          // Query for existing stage with this run_id and name
+          const { executeSelect } = await import(
+            "@webpods/tinqer-sql-pg-promise"
+          );
+          const { schema } = await import("@codespin/maxq-db");
 
-          if (!stageResult.success) {
-            throw new Error(
-              `Failed to create stage: ${stageResult.error.message}`,
-            );
-          }
+          const existingStages = await executeSelect(
+            txCtx.db,
+            schema,
+            (q, p) =>
+              q
+                .from("stage")
+                .where((s) => s.run_id === p.runId && s.name === p.name),
+            { runId, name: input.stage },
+          );
 
-          const stage = stageResult.data;
-          const stageId = stage.id;
-
-          // Create step records for all steps
-          const createdSteps = [];
-          for (const stepDef of input.steps) {
-            const stepResult = await createStep(txCtx, {
-              id: stepDef.id, // Flow-supplied unique ID
+          let stage;
+          if (existingStages.length > 0) {
+            // Stage exists - reuse it by resetting to pending
+            const existingStage = existingStages[0]!;
+            logger.info("Reusing existing stage", {
               runId,
-              stageId,
-              name: stepDef.name,
-              dependsOn: stepDef.dependsOn || [],
-              maxRetries: stepDef.maxRetries || 0,
-              env: stepDef.env,
+              stageId: existingStage.id,
+              name: input.stage,
+              previousStatus: existingStage.status,
             });
 
-            if (!stepResult.success) {
+            const { executeUpdate } = await import(
+              "@webpods/tinqer-sql-pg-promise"
+            );
+            const { mapStageFromDb } = await import("../../mappers.js");
+
+            await executeUpdate(
+              txCtx.db,
+              schema,
+              (q, p) =>
+                q
+                  .update("stage")
+                  .set({
+                    status: "pending",
+                    final: p.final,
+                    started_at: null,
+                    completed_at: null,
+                    termination_reason: null,
+                  })
+                  .where((s) => s.id === p.stageId),
+              {
+                stageId: existingStage.id,
+                final: input.final,
+              },
+            );
+
+            // Fetch updated stage
+            const updatedStages = await executeSelect(
+              txCtx.db,
+              schema,
+              (q, p) => q.from("stage").where((s) => s.id === p.stageId),
+              { stageId: existingStage.id },
+            );
+
+            stage = mapStageFromDb(updatedStages[0]!);
+          } else {
+            // Stage doesn't exist - create new one
+            const stageResult = await createStage(txCtx, {
+              runId,
+              name: input.stage,
+              final: input.final,
+            });
+
+            if (!stageResult.success) {
               throw new Error(
-                `Failed to create step ${stepDef.id}: ${stepResult.error.message}`,
+                `Failed to create stage: ${stageResult.error.message}`,
               );
             }
 
-            createdSteps.push(stepResult.data);
+            stage = stageResult.data;
+          }
+
+          const stageId = stage.id;
+
+          // Create/reuse step records for all steps
+          const createdSteps = [];
+          for (const stepDef of input.steps) {
+            // Check if step already exists (for retry scenario)
+            const existingSteps = await executeSelect(
+              txCtx.db,
+              schema,
+              (q, p) =>
+                q
+                  .from("step")
+                  .where((s) => s.run_id === p.runId && s.id === p.stepId),
+              { runId, stepId: stepDef.id },
+            );
+
+            let step;
+            if (existingSteps.length > 0) {
+              // Step exists - reuse it by resetting to pending
+              const existingStep = existingSteps[0]!;
+              logger.info("Reusing existing step", {
+                runId,
+                stageId,
+                stepId: stepDef.id,
+                stepName: stepDef.name,
+                previousStatus: existingStep.status,
+              });
+
+              const { executeUpdate } = await import(
+                "@webpods/tinqer-sql-pg-promise"
+              );
+              const { mapStepFromDb } = await import("../../mappers.js");
+
+              await executeUpdate(
+                txCtx.db,
+                schema,
+                (q, p) =>
+                  q
+                    .update("step")
+                    .set({
+                      status: "pending",
+                      stage_id: p.stageId,
+                      name: p.name,
+                      depends_on: p.dependsOn,
+                      max_retries: p.maxRetries,
+                      env: p.env,
+                      retry_count: 0,
+                      started_at: null,
+                      completed_at: null,
+                      duration_ms: null,
+                      stdout: null,
+                      stderr: null,
+                      termination_reason: null,
+                      fields: null,
+                      error: null,
+                    })
+                    .where((s) => s.id === p.stepId),
+                {
+                  stepId: stepDef.id,
+                  stageId,
+                  name: stepDef.name,
+                  dependsOn: JSON.stringify(stepDef.dependsOn || []), // Must stringify for JSONB column
+                  maxRetries: stepDef.maxRetries || 0,
+                  env: stepDef.env ? JSON.stringify(stepDef.env) : null, // Must stringify for JSONB column
+                },
+              );
+
+              // Fetch updated step
+              const updatedSteps = await executeSelect(
+                txCtx.db,
+                schema,
+                (q, p) => q.from("step").where((s) => s.id === p.stepId),
+                { stepId: stepDef.id },
+              );
+
+              step = mapStepFromDb(updatedSteps[0]!);
+            } else {
+              // Step doesn't exist - create new one
+              const stepResult = await createStep(txCtx, {
+                id: stepDef.id, // Flow-supplied unique ID
+                runId,
+                stageId,
+                name: stepDef.name,
+                dependsOn: stepDef.dependsOn || [],
+                maxRetries: stepDef.maxRetries || 0,
+                env: stepDef.env,
+              });
+
+              if (!stepResult.success) {
+                throw new Error(
+                  `Failed to create step ${stepDef.id}: ${stepResult.error.message}`,
+                );
+              }
+
+              step = stepResult.data;
+            }
+
+            createdSteps.push(step);
           }
 
           return { stageId, createdSteps };
@@ -195,54 +362,34 @@ export function scheduleStageHandler(ctx: DataContext) {
             exitCode: result.processResult.exitCode,
           });
 
-          // Check if step has fields posted (explicit status from step.sh)
-          const { getStep } = await import("../../domain/step/get-step.js");
-          const stepResult = await getStep(ctx, result.id);
+          // Determine status from exit code - exit code is the ONLY source of truth
+          // Fields are arbitrary JSON data for inter-step communication, not status control
+          const status: "completed" | "failed" =
+            result.processResult.exitCode === 0 ? "completed" : "failed";
 
-          // If step has fields posted, status was explicitly set by step.sh - respect it
-          // Otherwise use exit code as fallback per spec §5.5
-          let status: "completed" | "failed" | undefined;
-          const hasFieldsPosted =
-            stepResult.success &&
-            stepResult.data &&
-            stepResult.data.fields &&
-            Object.keys(stepResult.data.fields).length > 0;
-
-          if (hasFieldsPosted) {
-            // Step explicitly posted fields - status is authoritative, don't overwrite
-            status = undefined;
-            logger.debug("Step status already set via /fields POST", {
-              stepId: result.id,
-              status: stepResult.data!.status,
-            });
-          } else {
-            // No /fields POST - use exit code (may be retry attempt)
-            status =
-              result.processResult.exitCode === 0 ? "completed" : "failed";
-            logger.debug("Setting step status from exit code", {
-              stepId: result.id,
-              exitCode: result.processResult.exitCode,
-              status,
-              retryCount: result.retryCount,
-            });
-          }
+          logger.debug("Setting step status from exit code", {
+            stepId: result.id,
+            exitCode: result.processResult.exitCode,
+            status,
+            retryCount: result.retryCount,
+          });
 
           // Update step with execution results
           const { updateStep } = await import(
             "../../domain/step/update-step.js"
           );
           const updateResult = await updateStep(ctx, result.id, {
-            ...(status ? { status } : {}), // Only set status if not already set
+            status,
             stdout: result.processResult.stdout,
             stderr: result.processResult.stderr,
             retryCount: result.retryCount,
             completedAt: Date.now(),
           });
 
-          // Return the final status from DB (authoritative per spec §5.5)
+          // Return the final status from DB
           if (!updateResult.success || !updateResult.data) {
             // If update failed, fall back to computed status
-            return { finalStatus: status || "failed" };
+            return { finalStatus: status };
           }
 
           // Extract final status - should only be "completed" or "failed" at this point
@@ -272,10 +419,19 @@ export function scheduleStageHandler(ctx: DataContext) {
           const { updateStage } = await import(
             "../../domain/stage/update-stage.js"
           );
-          await updateStage(ctx, stageId, {
+          const stageUpdateResult = await updateStage(ctx, stageId, {
             status: "completed",
             completedAt: Date.now(),
           });
+
+          if (!stageUpdateResult.success) {
+            logger.error("Failed to mark stage as completed", {
+              runId,
+              stageId,
+              errorMessage: stageUpdateResult.error.message,
+              errorStack: stageUpdateResult.error.stack,
+            });
+          }
 
           // If final stage, mark run as completed
           if (input.final) {
@@ -285,10 +441,18 @@ export function scheduleStageHandler(ctx: DataContext) {
             const { updateRun } = await import(
               "../../domain/run/update-run.js"
             );
-            await updateRun(ctx, runId, {
+            const runUpdateResult = await updateRun(ctx, runId, {
               status: "completed",
               completedAt: Date.now(),
             });
+
+            if (!runUpdateResult.success) {
+              logger.error("Failed to mark run as completed", {
+                runId,
+                errorMessage: runUpdateResult.error.message,
+                errorStack: runUpdateResult.error.stack,
+              });
+            }
           } else {
             // Non-final stage: call flow with MAXQ_COMPLETED_STAGE
             logger.info(
@@ -323,10 +487,19 @@ export function scheduleStageHandler(ctx: DataContext) {
           const { updateStage } = await import(
             "../../domain/stage/update-stage.js"
           );
-          await updateStage(ctx, stageId, {
+          const stageUpdateResult = await updateStage(ctx, stageId, {
             status: "failed",
             completedAt: Date.now(),
           });
+
+          if (!stageUpdateResult.success) {
+            logger.error("Failed to mark stage as failed", {
+              runId,
+              stageId,
+              errorMessage: stageUpdateResult.error.message,
+              errorStack: stageUpdateResult.error.stack,
+            });
+          }
 
           // Call flow with MAXQ_FAILED_STAGE per spec §10.2
           logger.info("Calling flow with MAXQ_FAILED_STAGE", {
@@ -355,10 +528,18 @@ export function scheduleStageHandler(ctx: DataContext) {
 
           // Mark run as failed
           const { updateRun } = await import("../../domain/run/update-run.js");
-          await updateRun(ctx, runId, {
+          const runUpdateResult = await updateRun(ctx, runId, {
             status: "failed",
             completedAt: Date.now(),
           });
+
+          if (!runUpdateResult.success) {
+            logger.error("Failed to mark run as failed", {
+              runId,
+              errorMessage: runUpdateResult.error.message,
+              errorStack: runUpdateResult.error.stack,
+            });
+          }
         });
 
       // Return response immediately (execution happens in background)

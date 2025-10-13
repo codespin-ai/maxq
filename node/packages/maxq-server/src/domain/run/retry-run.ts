@@ -1,6 +1,6 @@
 /**
- * Resume an aborted workflow
- * Resets aborted work to pending and restarts execution
+ * Retry a failed or aborted workflow
+ * Resets failed/aborted work to pending and restarts execution
  */
 
 import { Result, success, failure } from "@codespin/maxq-core";
@@ -13,22 +13,22 @@ import { mapRunFromDb } from "../../mappers.js";
 import { createRunLog } from "../run-log/create-run-log.js";
 import { startRun } from "../../executor/orchestrator.js";
 
-const logger = createLogger("maxq:domain:run:resume");
+const logger = createLogger("maxq:domain:run:retry");
 
 /**
- * Resume an aborted workflow
- * Resets aborted work to pending status and restarts execution
+ * Retry a failed or aborted workflow
+ * Resets failed/aborted work to pending status and restarts execution
  *
  * @param ctx - Data context containing database and executor config
- * @param runId - ID of the run to resume
- * @returns Result containing resumed run or an error
+ * @param runId - ID of the run to retry
+ * @returns Result containing retried run or an error
  */
-export async function resumeRun(
+export async function retryRun(
   ctx: DataContext,
   runId: string,
 ): Promise<Result<Run, Error>> {
   try {
-    logger.info("Resuming run", { runId });
+    logger.info("Retrying run", { runId });
 
     // Get the run
     const runs = await executeSelect(
@@ -45,29 +45,31 @@ export async function resumeRun(
 
     const run = mapRunFromDb(runRow);
 
-    // Check if run can be resumed (must be failed with termination_reason='aborted')
-    if (run.status !== "failed") {
+    // Check if run can be retried (must not be completed)
+    if (run.status === "completed") {
       return failure(
         new Error(
-          `Run cannot be resumed: status is ${run.status} (must be 'failed')`,
+          `Run cannot be retried: status is '${run.status}' (completed runs cannot be retried)`,
         ),
       );
     }
 
-    if (run.terminationReason !== "aborted") {
+    // If run is still running, reject with 409 conflict
+    // User should abort first, then retry
+    if (run.status === "running" && !run.terminationReason) {
       return failure(
         new Error(
-          `Run cannot be resumed: termination reason is ${run.terminationReason || "none"} (must be 'aborted')`,
+          `Run cannot be retried: run is still in progress (status: 'running'). Abort the run first.`,
         ),
       );
     }
 
-    // Create log entry for resume
+    // Create log entry for retry
     await createRunLog(ctx, {
       runId,
       entityType: "run",
       level: "info",
-      message: "Run resumed after abort",
+      message: "Run retry initiated",
     });
 
     // Reset the run to pending
@@ -86,7 +88,8 @@ export async function resumeRun(
       { runId },
     );
 
-    // Reset all failed stages with termination_reason='aborted' to pending
+    // Reset all non-completed stages to pending
+    // Clear ALL timing fields to remove stale data
     await executeUpdate(
       ctx.db,
       schema,
@@ -96,18 +99,15 @@ export async function resumeRun(
           .set({
             status: "pending",
             termination_reason: null,
+            started_at: null,
             completed_at: null,
           })
-          .where(
-            (s) =>
-              s.run_id === p.runId &&
-              s.status === "failed" &&
-              s.termination_reason === "aborted",
-          ),
+          .where((s) => s.run_id === p.runId && s.status !== "completed"),
       { runId },
     );
 
-    // Reset all failed steps with termination_reason='aborted' to pending
+    // Reset all non-completed steps to pending
+    // Clear ALL timing fields to remove stale data
     await executeUpdate(
       ctx.db,
       schema,
@@ -117,17 +117,16 @@ export async function resumeRun(
           .set({
             status: "pending",
             termination_reason: null,
+            started_at: null,
             completed_at: null,
+            duration_ms: null,
             stdout: null,
             stderr: null,
+            fields: null,
+            error: null,
             retry_count: 0,
           })
-          .where(
-            (s) =>
-              s.run_id === p.runId &&
-              s.status === "failed" &&
-              s.termination_reason === "aborted",
-          ),
+          .where((s) => s.run_id === p.runId && s.status !== "completed"),
       { runId },
     );
 
@@ -155,14 +154,14 @@ export async function resumeRun(
       runId: updatedRun.id,
       flowName: updatedRun.flowName,
     }).catch((error) => {
-      logger.error("Orchestrator failed after resume", { runId, error });
+      logger.error("Orchestrator failed after retry", { runId, error });
     });
 
-    logger.info("Run resumed successfully", { runId });
+    logger.info("Run retried successfully", { runId });
 
     return success(updatedRun);
   } catch (error) {
-    logger.error("Failed to resume run", { error, runId });
+    logger.error("Failed to retry run", { error, runId });
     return failure(error as Error);
   }
 }

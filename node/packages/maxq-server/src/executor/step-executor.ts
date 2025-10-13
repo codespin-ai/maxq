@@ -319,7 +319,7 @@ export async function executeStepsDAG(
           };
 
           // Store result after each attempt and get final status from DB
-          // The callback checks /fields POST and returns authoritative status per spec §5.5
+          // Status is determined by exit code - this callback updates the DB
           const { finalStatus: statusFromDb } = await onStepComplete(result);
           finalStatus = statusFromDb;
 
@@ -353,8 +353,8 @@ export async function executeStepsDAG(
 
     allResults.push(...levelResults.map((r) => r.result));
 
-    // Check if any step failed in this level (use final status from DB, not exit code)
-    // Per spec §5.5: fields.status is authoritative signal
+    // Check if any step failed in this level
+    // Status is determined solely by exit code (0 = success, non-zero = failure)
     const failedSteps = levelResults.filter((r) => r.finalStatus === "failed");
     if (failedSteps.length > 0) {
       logger.error("Steps failed in level, aborting stage", {
