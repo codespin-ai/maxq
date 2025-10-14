@@ -8,6 +8,7 @@ export interface TestServerOptions {
   retryDelay?: number;
   logger?: Logger;
   flowsRoot?: string;
+  maxConcurrentSteps?: number; // Add support for concurrency limit
 }
 
 export class TestServer {
@@ -18,6 +19,7 @@ export class TestServer {
   private retryDelay: number;
   private logger: Logger;
   private flowsRoot: string;
+  private maxConcurrentSteps: number;
 
   constructor(options: TestServerOptions = {}) {
     this.port = options.port || 5099;
@@ -26,6 +28,11 @@ export class TestServer {
     this.retryDelay = options.retryDelay || 1000;
     this.logger = options.logger || consoleLogger;
     this.flowsRoot = options.flowsRoot || "./flows";
+    this.maxConcurrentSteps = options.maxConcurrentSteps || 10; // Default to 10
+  }
+
+  getPort(): number {
+    return this.port;
   }
 
   private async killProcessOnPort(): Promise<void> {
@@ -66,6 +73,9 @@ export class TestServer {
         MAXQ_DATABASE_URL: databaseUrl, // Constructed database URL for test database
         MAXQ_API_KEY: process.env.MAXQ_API_KEY || "test-token",
         MAXQ_FLOWS_ROOT: this.flowsRoot,
+        MAXQ_MAX_CONCURRENT_STEPS: this.maxConcurrentSteps.toString(), // Set concurrency limit
+        MAXQ_SCHEDULER_INTERVAL_MS: "50", // Faster scheduler for tests to reduce wait times
+        MAXQ_SCHEDULER_BATCH_SIZE: "100", // Process more steps per iteration in tests
       };
 
       // Start the server directly
@@ -178,6 +188,9 @@ export class TestServer {
     }
     if (options.dbName !== undefined) {
       this.dbName = options.dbName;
+    }
+    if (options.maxConcurrentSteps !== undefined) {
+      this.maxConcurrentSteps = options.maxConcurrentSteps;
     }
 
     // Restart server with new configuration
