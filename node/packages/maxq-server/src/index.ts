@@ -1,7 +1,7 @@
 import express from "express";
 import { config } from "dotenv";
 import { createLogger } from "@codespin/maxq-logger";
-import { createConnection } from "@codespin/maxq-db";
+import { createConnection, closeConnection } from "@codespin/maxq-db";
 import { createRunsRouter } from "./routes/runs.js";
 import type { DataContext } from "./domain/data-context.js";
 import type { ExecutorConfig } from "./executor/types.js";
@@ -165,12 +165,14 @@ async function start(): Promise<void> {
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully");
   stopScheduler();
+  await closeConnection();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   logger.info("SIGINT received, shutting down gracefully");
   stopScheduler();
+  await closeConnection();
   process.exit(0);
 });
 

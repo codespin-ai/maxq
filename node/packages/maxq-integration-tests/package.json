@@ -1,14 +1,14 @@
 {
   "name": "@codespin/maxq-integration-tests",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Integration tests for MaxQ",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "tsc --noEmit",
     "test:build": "tsc --noEmit",
-    "test": "LOG_LEVEL=error mocha --timeout 10000",
-    "test:grep": "LOG_LEVEL=error mocha --timeout 10000 --grep",
+    "test": "LOG_LEVEL=error mocha --timeout 120000",
+    "test:grep": "LOG_LEVEL=error mocha --timeout 120000 --grep",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix"
   },

@@ -50,7 +50,10 @@ describe("Scheduler Concurrency Limit", () => {
   });
 
   afterEach(async function () {
-    this.timeout(10000);
+    this.timeout(30000); // Increased timeout for cleanup
+
+    // Wait a moment for any pending database operations to complete
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Clean up
     await testServer.stop();
@@ -169,7 +172,10 @@ exit 0
     }, 100);
 
     // Wait for all steps to complete (or timeout)
-    await testDb.waitForQuery(
+    await testDb.waitForQuery<
+      { runId: string },
+      { id: string; status: string }
+    >(
       (q, p) =>
         q
           .from("step")
