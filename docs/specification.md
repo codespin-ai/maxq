@@ -1640,7 +1640,13 @@ CREATE TABLE run (
   created_at        BIGINT NOT NULL,         -- Epoch milliseconds
   started_at        BIGINT,                  -- When first stage scheduled
   completed_at      BIGINT,                  -- When run finished
-  duration_ms       BIGINT                   -- Total duration
+  duration_ms       BIGINT,                  -- Total duration
+  stdout            TEXT,                    -- Captured stdout from flow.sh process
+  stderr            TEXT,                    -- Captured stderr from flow.sh process
+  name              TEXT,                    -- Run display name (set by flow via API)
+  description       TEXT,                    -- Run display description (set by flow via API)
+  flow_title        TEXT,                    -- Flow display title (from flow.yaml)
+  termination_reason TEXT                    -- Reason for termination: 'aborted', 'server_restart', etc.
 );
 
 CREATE INDEX idx_run_flow_name ON run(flow_name);
@@ -1660,7 +1666,9 @@ CREATE TABLE stage (
   final             BOOLEAN NOT NULL,        -- Is this the final stage?
   status            TEXT NOT NULL,           -- pending, running, completed, failed
   created_at        BIGINT NOT NULL,
-  completed_at      BIGINT
+  started_at        BIGINT,                  -- When stage execution began
+  completed_at      BIGINT,
+  termination_reason TEXT                    -- Reason for termination: 'aborted', 'server_restart', etc.
 );
 
 CREATE INDEX idx_stage_run_id ON stage(run_id);
@@ -1690,13 +1698,19 @@ CREATE TABLE step (
   completed_at      BIGINT,
   duration_ms       BIGINT,
   stdout            TEXT,                    -- Captured stdout from step process
-  stderr            TEXT                     -- Captured stderr from step process
+  stderr            TEXT,                    -- Captured stderr from step process
+  termination_reason TEXT,                   -- Reason for termination: 'aborted', 'server_restart', etc.
+  queued_at         BIGINT,                  -- When step was queued for execution (scheduler)
+  claimed_at        BIGINT,                  -- When worker claimed the step (scheduler)
+  heartbeat_at      BIGINT,                  -- Last heartbeat from worker (scheduler, future use)
+  worker_id         TEXT                     -- Identifier of worker executing step (scheduler)
 );
 
 CREATE INDEX idx_step_run_id ON step(run_id);
 CREATE INDEX idx_step_stage_id ON step(stage_id);
 CREATE INDEX idx_step_status ON step(status);
 CREATE INDEX idx_step_name ON step(run_id, name);
+CREATE INDEX idx_step_scheduler_queue ON step(status, queued_at);  -- For efficient scheduler queries
 CREATE UNIQUE INDEX idx_step_id ON step(run_id, id);  -- Enforce ID uniqueness within run
 ```
 
@@ -1706,8 +1720,11 @@ CREATE UNIQUE INDEX idx_step_id ON step(run_id, id);  -- Enforce ID uniqueness w
 - `name`: Script directory name - multiple steps can share the same name
 - `depends_on`: Array of step IDs, not names
 - `fields`: Arbitrary JSON data posted by steps
+- `queued_at`, `claimed_at`, `heartbeat_at`, `worker_id`: Scheduler-specific fields for queue management and worker tracking (see section 5.5)
+- `termination_reason`: Why step was terminated (e.g., "aborted", "server_restart")
 - No `sequence` column - flows generate explicit IDs
 - Unique constraint on (run_id, id) ensures no duplicate IDs
+- `idx_step_scheduler_queue` index optimizes scheduler queries for pending steps
 
 ### 8.4 `log` Table (Optional)
 
