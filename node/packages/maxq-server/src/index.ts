@@ -5,6 +5,8 @@ import { createConnection } from "@codespin/maxq-db";
 import { createRunsRouter } from "./routes/runs.js";
 import type { DataContext } from "./domain/data-context.js";
 import type { ExecutorConfig } from "./executor/types.js";
+import { StepProcessRegistry } from "./executor/process-registry.js";
+import { performStartupCleanup } from "./startup/cleanup.js";
 
 // Export types for use in tests and clients
 export type {
@@ -71,12 +73,16 @@ logger.info("Executor configuration", {
   apiUrl,
 });
 
+// Create process registry
+const processRegistry = new StepProcessRegistry();
+
 // Create data context
 const ctx: DataContext = {
   db,
   executor: {
     config: executorConfig,
     apiUrl,
+    processRegistry,
   },
 };
 
@@ -134,6 +140,13 @@ app.use(
 // Start server
 async function start(): Promise<void> {
   try {
+    // Perform startup cleanup: kill MaxQ processes and fail interrupted work
+    const abortGraceMs = parseInt(
+      process.env.MAXQ_ABORT_GRACE_MS || "5000",
+      10,
+    );
+    await performStartupCleanup(db, abortGraceMs);
+
     // Start listening
     app.listen(port, () => {
       logger.info("MaxQ server running", { port });

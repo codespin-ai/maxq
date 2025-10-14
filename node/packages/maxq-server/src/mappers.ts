@@ -2,8 +2,13 @@
  * Mapper functions to convert between database rows (snake_case) and domain types (camelCase)
  */
 
-import type { RunDbRow, StageDbRow, StepDbRow } from "@codespin/maxq-db";
-import type { Run, Stage, Step } from "./types.js";
+import type {
+  RunDbRow,
+  StageDbRow,
+  StepDbRow,
+  RunLogDbRow,
+} from "@codespin/maxq-db";
+import type { Run, Stage, Step, RunLog } from "./types.js";
 
 // Run mappers
 export function mapRunFromDb(row: RunDbRow): Run {
@@ -24,6 +29,7 @@ export function mapRunFromDb(row: RunDbRow): Run {
     name: row.name ?? undefined,
     description: row.description ?? undefined,
     flowTitle: row.flow_title ?? undefined,
+    terminationReason: row.termination_reason ?? undefined,
   };
 }
 
@@ -46,6 +52,8 @@ export function mapRunToDb(run: Partial<Run>): Partial<RunDbRow> {
   if (run.name !== undefined) dbRow.name = run.name;
   if (run.description !== undefined) dbRow.description = run.description;
   if (run.flowTitle !== undefined) dbRow.flow_title = run.flowTitle;
+  if (run.terminationReason !== undefined)
+    dbRow.termination_reason = run.terminationReason;
 
   return dbRow;
 }
@@ -59,7 +67,9 @@ export function mapStageFromDb(row: StageDbRow): Stage {
     final: row.final,
     status: row.status,
     createdAt: row.created_at,
+    startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
+    terminationReason: row.termination_reason ?? undefined,
   };
 }
 
@@ -72,7 +82,10 @@ export function mapStageToDb(stage: Partial<Stage>): Partial<StageDbRow> {
   if (stage.final !== undefined) dbRow.final = stage.final;
   if (stage.status !== undefined) dbRow.status = stage.status;
   if (stage.createdAt !== undefined) dbRow.created_at = stage.createdAt;
+  if (stage.startedAt !== undefined) dbRow.started_at = stage.startedAt;
   if (stage.completedAt !== undefined) dbRow.completed_at = stage.completedAt;
+  if (stage.terminationReason !== undefined)
+    dbRow.termination_reason = stage.terminationReason;
 
   return dbRow;
 }
@@ -97,6 +110,11 @@ export function mapStepFromDb(row: StepDbRow): Step {
     durationMs: row.duration_ms ?? undefined,
     stdout: row.stdout ?? undefined,
     stderr: row.stderr ?? undefined,
+    terminationReason: row.termination_reason ?? undefined,
+    queuedAt: row.queued_at ?? undefined,
+    claimedAt: row.claimed_at ?? undefined,
+    heartbeatAt: row.heartbeat_at ?? undefined,
+    workerId: row.worker_id ?? undefined,
   };
 }
 
@@ -120,6 +138,41 @@ export function mapStepToDb(step: Partial<Step>): Partial<StepDbRow> {
   if (step.durationMs !== undefined) dbRow.duration_ms = step.durationMs;
   if (step.stdout !== undefined) dbRow.stdout = step.stdout;
   if (step.stderr !== undefined) dbRow.stderr = step.stderr;
+  if (step.terminationReason !== undefined)
+    dbRow.termination_reason = step.terminationReason;
+  if (step.queuedAt !== undefined) dbRow.queued_at = step.queuedAt;
+  if (step.claimedAt !== undefined) dbRow.claimed_at = step.claimedAt;
+  if (step.heartbeatAt !== undefined) dbRow.heartbeat_at = step.heartbeatAt;
+  if (step.workerId !== undefined) dbRow.worker_id = step.workerId;
+
+  return dbRow;
+}
+
+// RunLog mappers
+export function mapRunLogFromDb(row: RunLogDbRow): RunLog {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    entityType: row.entity_type,
+    entityId: row.entity_id ?? undefined,
+    level: row.level,
+    message: row.message,
+    metadata: row.metadata ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapRunLogToDb(log: Partial<RunLog>): Partial<RunLogDbRow> {
+  const dbRow: Partial<RunLogDbRow> = {};
+
+  if (log.id !== undefined) dbRow.id = log.id;
+  if (log.runId !== undefined) dbRow.run_id = log.runId;
+  if (log.entityType !== undefined) dbRow.entity_type = log.entityType;
+  if (log.entityId !== undefined) dbRow.entity_id = log.entityId;
+  if (log.level !== undefined) dbRow.level = log.level;
+  if (log.message !== undefined) dbRow.message = log.message;
+  if (log.metadata !== undefined) dbRow.metadata = log.metadata;
+  if (log.createdAt !== undefined) dbRow.created_at = log.createdAt;
 
   return dbRow;
 }

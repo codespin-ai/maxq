@@ -47,6 +47,7 @@ export function createRunHandler(ctx: DataContext) {
           db: ctx.db,
           config: ctx.executor.config,
           apiUrl: ctx.executor.apiUrl,
+          processRegistry: ctx.executor.processRegistry,
         },
         {
           runId: run.id,

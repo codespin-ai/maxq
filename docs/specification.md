@@ -917,7 +917,9 @@ Called by MaxQ executor to update step status. May also be called by steps thems
 POST /runs/{runId}/steps/{stepId}/fields
 ```
 
-Called by step.sh to post fields and signal completion. **The act of making this HTTP call signals that step execution has finished.** This is the primary completion mechanism for steps.
+Called by step.sh to post arbitrary fields (results, metrics, metadata, etc.) for use by downstream steps.
+
+**IMPORTANT**: Fields are arbitrary JSON data for inter-step communication. **Step status is determined solely by exit code (0 = success, non-zero = failure).** Fields do NOT affect step status.
 
 The `stepId` in the URL is the identifier supplied by the flow when scheduling the stage (see 6.4.5).
 
@@ -926,7 +928,6 @@ The `stepId` in the URL is the identifier supplied by the flow when scheduling t
 ```json
 {
   "fields": {
-    "status": "completed",
     "articles_fetched": 42,
     "raw_data": {
       "articles": [...]
@@ -941,7 +942,7 @@ The `stepId` in the URL is the identifier supplied by the flow when scheduling t
 
 **Field Descriptions:**
 
-- `fields` (required, object): Arbitrary key-value pairs storing step results. Steps can post any data structure here. By convention, include a `status` field with value `completed` or `failed`.
+- `fields` (required, object): Arbitrary key-value pairs storing step results. Steps can post any data structure here. MaxQ stores this as-is and makes it available for querying by downstream steps.
 
 **Response:** `200 OK`
 
@@ -950,7 +951,6 @@ The `stepId` in the URL is the identifier supplied by the flow when scheduling t
   "id": "fetch-news",
   "runId": "run-uuid-123",
   "fields": {
-    "status": "completed",
     "articles_fetched": 42,
     "raw_data": {...},
     "processing_time_ms": 1234,
@@ -962,11 +962,11 @@ The `stepId` in the URL is the identifier supplied by the flow when scheduling t
 
 **Notes:**
 
-- Steps SHOULD call this endpoint when execution completes (success or failure)
-- If a step process exits without calling this endpoint, MaxQ will mark it as failed based on exit code
+- Fields are optional - steps may complete without posting fields
+- Step status is determined ONLY by exit code (0 = success, non-zero = failure)
+- MaxQ ignores field contents when determining step status
 - All fields are stored in the database and can be queried by downstream steps via "Query Step Results" (6.4.10)
 - No predefined schema - steps can post any fields they need
-- By convention, use a `status` field with value `completed` or `failed` to indicate success/failure
 - The `stepId` in the URL must match the ID supplied by the flow when scheduling the stage
 
 ---
@@ -1041,11 +1041,369 @@ NEWS=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/fields?stepId=fetch-news" | \
   jq -r '.fields[0].fields.raw_data')
 
 # Process the data...
-# Post results
+# Post results (exit code determines success/failure)
 curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
-  -d "{\"fields\": {\"status\": \"completed\", \"result\": ...}}"
+  -d "{\"fields\": {\"result\": ...}}"
+exit 0  # Exit code 0 = success
 ```
+
+---
+
+#### 6.4.11 Abort Run
+
+```
+POST /runs/{runId}/abort
+```
+
+Abort a running workflow by terminating all running processes and marking incomplete work as failed.
+
+**IMPORTANT**: This operation is irreversible. Use retry (6.4.12) to restart an aborted workflow.
+
+**Request Body:** Empty (`{}`)
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Run abort initiated",
+  "processesKilled": 3,
+  "alreadyCompleted": false
+}
+```
+
+**Field Descriptions:**
+
+- `message` (string): Confirmation message
+- `processesKilled` (number): Number of processes terminated
+- `alreadyCompleted` (boolean): True if run was already completed/failed
+
+**Behavior:**
+
+1. Sends SIGTERM to all running flow and step processes
+2. Waits for graceful shutdown (default 5000ms, configurable via `MAXQ_ABORT_GRACE_MS`)
+3. Escalates to SIGKILL if processes don't terminate
+4. Marks run status as `failed` with `terminationReason: "aborted"`
+5. Marks all pending/running stages as failed
+6. Marks all pending/running steps as failed
+7. Creates log entry for abort event
+
+**Error Responses:**
+
+- `404 Not Found`: Run doesn't exist
+- `400 Bad Request`: Run already completed/failed (idempotent - returns success)
+- `500 Internal Server Error`: Unexpected failure
+
+**Example:**
+
+```bash
+# Abort a running workflow
+curl -X POST "$MAXQ_API/runs/run-uuid-123/abort" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Response:
+{
+  "message": "Run abort initiated",
+  "processesKilled": 5,
+  "alreadyCompleted": false
+}
+```
+
+**Notes:**
+
+- Abort is idempotent - calling abort on an already aborted run returns success
+- Process termination uses graceful shutdown (SIGTERM → SIGKILL)
+- After abort, use retry (6.4.12) to restart the workflow
+- All incomplete work is marked as failed with `terminationReason: "aborted"`
+
+---
+
+#### 6.4.12 Retry Run
+
+```
+POST /runs/{runId}/retry
+```
+
+Retry a failed or aborted workflow by resetting incomplete work to pending and restarting execution.
+
+**IMPORTANT**: This endpoint was previously called `/resume` - it has been renamed to `/retry` and expanded to support any non-completed run (not just aborted runs).
+
+**Request Body:** Empty (`{}`)
+
+**Response:** `200 OK`
+
+```json
+{
+  "run": {
+    "id": "run-uuid-123",
+    "flowName": "market_analysis",
+    "status": "pending",
+    "terminationReason": null,
+    "createdAt": 1704067200000,
+    "startedAt": null,
+    "completedAt": null
+  },
+  "message": "Run retry initiated"
+}
+```
+
+**Field Descriptions:**
+
+- `run` (object): Updated run object with status reset to pending
+- `message` (string): Confirmation message
+
+**Behavior:**
+
+1. Validates run exists and can be retried
+2. Resets run status to `pending`
+3. Clears `terminationReason` and `completedAt`
+4. Resets all non-completed stages to `pending` (clears timing fields)
+5. Resets all non-completed steps to `pending` (clears execution data)
+6. Restarts orchestrator to begin execution
+7. Creates log entry for retry event
+
+**Eligibility:**
+
+- ✅ **Can retry**: Failed runs (natural failure or aborted)
+- ❌ **Cannot retry**: Completed runs (returns 400)
+- ❌ **Cannot retry**: Actively running runs without abort (returns 409)
+
+**Error Responses:**
+
+- `404 Not Found`: Run doesn't exist
+- `409 Conflict`: Run is still in progress - abort it first
+- `400 Bad Request`: Run is completed (completed runs cannot be retried)
+- `500 Internal Server Error`: Unexpected failure
+
+**Example - Retry after abort:**
+
+```bash
+# Abort a running workflow
+curl -X POST "$MAXQ_API/runs/run-uuid-123/abort"
+
+# Retry the aborted workflow
+curl -X POST "$MAXQ_API/runs/run-uuid-123/retry" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Response:
+{
+  "run": {
+    "id": "run-uuid-123",
+    "status": "pending",
+    "terminationReason": null
+  },
+  "message": "Run retry initiated"
+}
+```
+
+**Example - Retry after natural failure:**
+
+```bash
+# Run failed naturally (not aborted)
+# Retry the failed workflow
+curl -X POST "$MAXQ_API/runs/run-uuid-123/retry" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Notes:**
+
+- Only non-completed work is reset - completed stages/steps remain completed
+- All timing fields are cleared for retried stages/steps
+- Stages and steps are reused (not duplicated) on retry
+- Orchestrator restarts immediately after retry
+- Run must be aborted before retrying if still actively running
+
+**Stage/Step Reuse:**
+
+When flow schedules the same stage again after retry:
+
+- Existing stage record is reused and reset to pending
+- Existing step records are reused and reset to pending
+- No duplicate stages or steps are created
+
+**Important for Flows:**
+
+Flows MUST check `MAXQ_FAILED_STAGE` and handle stage failures appropriately:
+
+```bash
+#!/bin/bash
+# Don't schedule anything if we're being called after a stage failure
+if [ -n "$MAXQ_FAILED_STAGE" ]; then
+  echo "Stage failed: $MAXQ_FAILED_STAGE"
+  exit 0  # Exit cleanly to allow retry
+fi
+
+# Normal stage scheduling...
+```
+
+Without this check, the flow may re-schedule the failed stage automatically.
+
+---
+
+#### 6.4.13 Create Run Log
+
+```
+POST /runs/{runId}/logs
+```
+
+Create a structured log entry for a workflow execution event.
+
+**Request Body:**
+
+```json
+{
+  "entityType": "step",
+  "entityId": "fetch-data",
+  "level": "error",
+  "message": "Step failed after retries",
+  "metadata": {
+    "exitCode": 1,
+    "retryCount": 3
+  }
+}
+```
+
+**Field Descriptions:**
+
+- `entityType` (required, string): Type of entity - one of: `"run"`, `"stage"`, `"step"`, `"flow"`
+- `entityId` (optional, string): Specific entity identifier (e.g., step ID, stage name)
+- `level` (required, string): Log level - one of: `"debug"`, `"info"`, `"warn"`, `"error"`
+- `message` (required, string): Log message
+- `metadata` (optional, object): Additional structured data (arbitrary JSON)
+
+**Response:** `201 Created`
+
+```json
+{
+  "id": "log-uuid-456",
+  "runId": "run-uuid-123",
+  "entityType": "step",
+  "entityId": "fetch-data",
+  "level": "error",
+  "message": "Step failed after retries",
+  "metadata": {
+    "exitCode": 1,
+    "retryCount": 3
+  },
+  "createdAt": 1704067210000
+}
+```
+
+**Error Responses:**
+
+- `400 Bad Request`: Invalid log level or missing required fields
+- `404 Not Found`: Run doesn't exist
+- `500 Internal Server Error`: Unexpected failure
+
+**Example - Run-level log:**
+
+```bash
+curl -X POST "$MAXQ_API/runs/run-uuid-123/logs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "run",
+    "level": "info",
+    "message": "Workflow started"
+  }'
+```
+
+**Example - Step-level log with metadata:**
+
+```bash
+curl -X POST "$MAXQ_API/runs/run-uuid-123/logs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "step",
+    "entityId": "fetch-data",
+    "level": "error",
+    "message": "Step failed",
+    "metadata": {
+      "exitCode": 1,
+      "signal": "SIGTERM"
+    }
+  }'
+```
+
+**Notes:**
+
+- Logs are stored indefinitely (no automatic cleanup)
+- Metadata can contain any JSON-serializable data
+- Logs are queryable via 6.4.14 (List Run Logs)
+- Logs are created automatically for system events (abort, retry, etc.)
+
+---
+
+#### 6.4.14 List Run Logs
+
+```
+GET /runs/{runId}/logs
+```
+
+Query logs for a run with optional filtering.
+
+**Query Parameters:**
+
+- `entityType` (optional): Filter by entity type (`run`, `stage`, `step`, `flow`)
+- `entityId` (optional): Filter by specific entity ID
+- `level` (optional): Filter by log level (`debug`, `info`, `warn`, `error`)
+- `limit` (optional): Max results (default: 100, max: 1000)
+
+**Response:**
+
+```json
+{
+  "logs": [
+    {
+      "id": "log-uuid-456",
+      "runId": "run-uuid-123",
+      "entityType": "step",
+      "entityId": "fetch-data",
+      "level": "error",
+      "message": "Step failed after retries",
+      "metadata": {
+        "exitCode": 1,
+        "retryCount": 3
+      },
+      "createdAt": 1704067210000
+    },
+    {
+      "id": "log-uuid-457",
+      "runId": "run-uuid-123",
+      "entityType": "run",
+      "level": "info",
+      "message": "Run retry initiated",
+      "metadata": {},
+      "createdAt": 1704067220000
+    }
+  ]
+}
+```
+
+**Example Queries:**
+
+```bash
+# Get all logs for a run
+GET /runs/run-uuid-123/logs
+
+# Get only error logs
+GET /runs/run-uuid-123/logs?level=error
+
+# Get logs for a specific step
+GET /runs/run-uuid-123/logs?entityType=step&entityId=fetch-data
+
+# Get step errors with limit
+GET /runs/run-uuid-123/logs?entityType=step&level=error&limit=50
+```
+
+**Notes:**
+
+- Logs are sorted by `createdAt` descending (newest first)
+- All filters are optional and can be combined
+- Limit parameter helps with pagination
+- Metadata is returned as-is (arbitrary JSON)
 
 ---
 
@@ -1368,16 +1726,16 @@ set -e
 
 echo "Hello, $NAME!"
 
-# Post fields to signal completion
+# Post fields with results (exit code determines success/failure)
 curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
     \"fields\": {
-      \"status\": \"completed\",
       \"greeting_message\": \"Hello, $NAME!\",
       \"timestamp\": $(date +%s)
     }
   }"
+exit 0  # Exit code 0 = success
 ```
 
 **steps/goodbye/step.sh:**
@@ -1393,16 +1751,16 @@ GREETING=$(curl "$MAXQ_API/runs/$MAXQ_RUN_ID/steps?id=greet-step" | \
 echo "Previous greeting was: $GREETING"
 echo "Goodbye!"
 
-# Post fields to signal completion
+# Post fields (exit code determines success/failure)
 curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
     \"fields\": {
-      \"status\": \"completed\",
       \"farewell_message\": \"Goodbye!\",
       \"previous_greeting\": \"$GREETING\"
     }
   }"
+exit 0  # Exit code 0 = success
 ```
 
 ---
@@ -1496,16 +1854,16 @@ set -e
 URLS=$(curl "$SOURCE" | grep -oP 'https://[^<]+' | head -10)
 URLS_JSON=$(echo "$URLS" | jq -R -s -c 'split("\n") | map(select(length > 0))')
 
-# Post fields with URL list
+# Post fields with URL list (exit code determines success/failure)
 curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
     \"fields\": {
-      \"status\": \"completed\",
       \"urls\": $URLS_JSON,
       \"count\": $(echo "$URLS_JSON" | jq 'length')
     }
   }"
+exit 0  # Exit code 0 = success
 ```
 
 **steps/scrape_page/step.sh:**
@@ -1525,17 +1883,17 @@ echo "Scraping: $URL (INDEX=$INDEX, STEP_ID=$MAXQ_STEP_ID)"
 CONTENT=$(curl -s "$URL" | html2text)
 CONTENT_JSON=$(echo "$CONTENT" | jq -R -s)
 
-# Post fields with scraped content
+# Post fields with scraped content (exit code determines success/failure)
 curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
     \"fields\": {
-      \"status\": \"completed\",
       \"url\": \"$URL\",
       \"content\": $CONTENT_JSON,
       \"length\": ${#CONTENT}
     }
   }"
+exit 0  # Exit code 0 = success
 ```
 
 **steps/aggregate/step.sh:**
@@ -1556,17 +1914,17 @@ echo "Scraped $TOTAL pages"
 # Calculate total content length
 TOTAL_LENGTH=$(echo "$SCRAPE_FIELDS" | jq '[.[].fields.length] | add')
 
-# Post fields with summary
+# Post fields with summary (exit code determines success/failure)
 curl -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps/$MAXQ_STEP_ID/fields" \
   -H "Content-Type: application/json" \
   -d "{
     \"fields\": {
-      \"status\": \"completed\",
       \"total_pages\": $TOTAL,
       \"total_content_length\": $TOTAL_LENGTH,
       \"timestamp\": $(date +%s)
     }
   }"
+exit 0  # Exit code 0 = success
 ```
 
 ---

@@ -29,6 +29,7 @@ export type Run = {
   name?: string;
   description?: string;
   flowTitle?: string;
+  terminationReason?: string;
 };
 
 // Stage domain type (camelCase for API)
@@ -39,7 +40,9 @@ export type Stage = {
   final: boolean;
   status: StageStatus;
   createdAt: number;
+  startedAt?: number;
   completedAt?: number;
+  terminationReason?: string;
 };
 
 // Step domain type (camelCase for API)
@@ -61,6 +64,12 @@ export type Step = {
   durationMs?: number;
   stdout?: string;
   stderr?: string;
+  terminationReason?: string;
+  // Scheduler fields
+  queuedAt?: number;
+  claimedAt?: number;
+  heartbeatAt?: number;
+  workerId?: string;
 };
 
 // Input types for creating entities
@@ -135,6 +144,38 @@ export type ListStepsParams = {
   offset?: number;
   sortBy?: "createdAt" | "completedAt";
   sortOrder?: "asc" | "desc";
+};
+
+// Run log domain type (camelCase for API)
+export type RunLog = {
+  id: string; // UUID
+  runId: string;
+  entityType: "run" | "stage" | "step";
+  entityId?: string; // stage_id or step_id, null for run-level logs
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
+  metadata?: unknown; // Additional structured data
+  createdAt: number;
+};
+
+// Run log input types
+export type CreateRunLogInput = {
+  runId: string;
+  entityType: "run" | "stage" | "step";
+  entityId?: string;
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
+  metadata?: unknown;
+};
+
+export type ListRunLogsParams = {
+  runId: string;
+  entityType?: "run" | "stage" | "step";
+  entityId?: string;
+  level?: "debug" | "info" | "warn" | "error";
+  limit?: number;
+  before?: number; // created_at timestamp - logs before this time
+  after?: number; // created_at timestamp - logs after this time
 };
 
 // Pagination result

@@ -15,15 +15,18 @@ import {
   executeStepsDAG,
   type StepDefinition,
 } from "@codespin/maxq-server/dist/executor/step-executor.js";
+import { StepProcessRegistry } from "@codespin/maxq-server/dist/executor/process-registry.js";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
 describe("Executor End-to-End Tests", () => {
   let flowsRoot: string;
+  let processRegistry: StepProcessRegistry;
 
   beforeEach(async () => {
     flowsRoot = await mkdtemp(join(tmpdir(), "maxq-e2e-test-"));
+    processRegistry = new StepProcessRegistry();
   });
 
   afterEach(async () => {
@@ -53,6 +56,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(0);
@@ -83,6 +87,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(0);
@@ -112,6 +117,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
         completedStage: "previous-stage",
       });
 
@@ -140,6 +146,7 @@ exit 0
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
         failedStage: "failed-stage",
       });
 
@@ -168,6 +175,7 @@ exit 1
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(1);
@@ -193,6 +201,7 @@ echo "Not valid JSON"
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.processResult.exitCode).to.equal(0);
@@ -227,6 +236,7 @@ echo "Step executed"
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
       });
 
       expect(result.exitCode).to.equal(0);
@@ -264,6 +274,7 @@ echo "CUSTOM=$CUSTOM_VAR"
         flowsRoot,
         apiUrl: "http://localhost:5003/api/v1",
         maxLogCapture: 8192,
+        processRegistry,
         env: { CUSTOM_VAR: "custom-value" },
       });
 
@@ -330,6 +341,7 @@ echo "Executing ${stepName}"
         "http://localhost:5003/api/v1",
         8192,
         5,
+        processRegistry,
         async (result) => {
           // Return final status based on exit code
           return {
@@ -375,6 +387,7 @@ echo "Executing ${stepName}"
         "http://localhost:5003/api/v1",
         8192,
         10,
+        processRegistry,
         async (result) => {
           // Return final status based on exit code
           return {
@@ -428,6 +441,7 @@ exit 1
           "http://localhost:5003/api/v1",
           8192,
           5,
+          processRegistry,
           async (result) => {
             // Return final status based on exit code
             return {
@@ -459,6 +473,7 @@ exit 1
         "http://localhost:5003/api/v1",
         8192,
         10,
+        processRegistry,
         async (result) => {
           // Return final status based on exit code
           return {
@@ -532,6 +547,7 @@ exit 0
         "http://localhost:5003/api/v1",
         8192,
         5,
+        processRegistry,
         async (result) => {
           // Return final status based on exit code
           return {
@@ -584,6 +600,7 @@ exit 1
           "http://localhost:5003/api/v1",
           8192,
           5,
+          processRegistry,
           async (result) => {
             // Return final status based on exit code
             return {

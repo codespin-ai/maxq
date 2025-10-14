@@ -8,6 +8,7 @@ import { createLogger } from "@codespin/maxq-logger";
 import type { ProcessResult } from "./types.js";
 import { buildFlowPath } from "./security.js";
 import { spawnProcess } from "./process-spawn.js";
+import type { StepProcessRegistry } from "./process-registry.js";
 
 const logger = createLogger("maxq:executor:flow");
 
@@ -36,6 +37,7 @@ export type FlowExecutionInput = {
   flowsRoot: string;
   apiUrl: string;
   maxLogCapture: number;
+  processRegistry: StepProcessRegistry;
   completedStage?: string;
   failedStage?: string;
   cwd?: string;
@@ -65,6 +67,7 @@ export async function executeFlow(
     flowsRoot,
     apiUrl,
     maxLogCapture,
+    processRegistry,
     completedStage,
     failedStage,
     cwd,
@@ -105,7 +108,14 @@ export async function executeFlow(
     env,
     flowCwd,
     maxLogCapture,
+    (proc) => {
+      // Register flow process for abort support
+      processRegistry.register(runId, "flow", proc);
+    },
   );
+
+  // Unregister flow process after completion
+  processRegistry.unregister(runId, "flow");
 
   logger.debug("Flow process completed", {
     exitCode: processResult.exitCode,
