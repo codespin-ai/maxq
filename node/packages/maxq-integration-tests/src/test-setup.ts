@@ -41,19 +41,29 @@ export const client = new TestHttpClient(`http://localhost:5099`);
  * This works across process boundaries (test process -> spawned server process)
  */
 async function waitForActiveFlows(): Promise<void> {
-  const maxWait = 5000; // 5 seconds
-  const interval = 50; // Check every 50ms
+  const maxWait = 10000; // 10 seconds (increased for scheduler-driven execution)
+  const interval = 100; // Check every 100ms (less frequent polling)
   const startTime = Date.now();
+  let lastActiveCount = -1;
 
   while (Date.now() - startTime < maxWait) {
     try {
       const response = await client.get<PaginatedResult<Run>>(
-        "/api/v1/runs?status=running&limit=1",
+        "/api/v1/runs?status=running&limit=10",
       );
 
       // Check if response has the expected structure
-      if (response.status === 200 && response.data?.pagination?.total === 0) {
-        return; // No active flows
+      if (response.status === 200 && response.data?.pagination) {
+        const activeCount = response.data.pagination.total;
+
+        if (activeCount !== lastActiveCount) {
+          testLogger.debug(`Active flows: ${activeCount}`);
+          lastActiveCount = activeCount;
+        }
+
+        if (activeCount === 0) {
+          return; // No active flows
+        }
       }
 
       await new Promise((resolve) => setTimeout(resolve, interval));
@@ -64,7 +74,9 @@ async function waitForActiveFlows(): Promise<void> {
     }
   }
 
-  testLogger.warn("Timeout waiting for active flows to complete");
+  testLogger.warn(
+    `Timeout waiting for active flows to complete (last count: ${lastActiveCount})`,
+  );
 }
 
 /**
@@ -88,16 +100,15 @@ async function createDummyFlows(): Promise<void> {
       "workflow-b",
     ];
 
-    // Minimal valid flow that uses HTTP API (as per spec)
+    // Minimal valid flow that exits immediately without scheduling anything
+    // This prevents the scheduler from getting stuck waiting for stages to complete
     const flowScript = `#!/bin/bash
-# Schedule a dummy stage via HTTP API
-curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "stage": "dummy",
-    "final": true,
-    "steps": []
-  }'
+# Exit immediately with success
+# When MAXQ_COMPLETED_STAGE is empty (first call), we can choose to:
+# 1. Schedule no stages (run will complete immediately)
+# 2. Schedule stages with actual work
+# For API tests, we do nothing to avoid scheduler complications
+exit 0
 `;
 
     for (const flowName of flowNames) {

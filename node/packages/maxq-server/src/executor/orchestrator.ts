@@ -8,7 +8,7 @@ import type { ExecutorConfig } from "./types.js";
 import { executeFlowInitial } from "./flow-executor.js";
 import type { IDatabase } from "pg-promise";
 import { createSchema } from "@webpods/tinqer";
-import { executeUpdate } from "@webpods/tinqer-sql-pg-promise";
+import { executeUpdate, executeSelect } from "@webpods/tinqer-sql-pg-promise";
 import type { DatabaseSchema } from "@codespin/maxq-db";
 import type { StepProcessRegistry } from "./process-registry.js";
 
@@ -104,8 +104,40 @@ export async function startRun(
       }
 
       logger.info("Flow initial call completed", { runId, flowName });
-      // Flow schedules stages via HTTP API - execution happens asynchronously
-      // Run status will be updated when final stage completes
+
+      // Check if any stages were scheduled
+      // If no stages exist, the flow chose not to schedule any work
+      // In this case, mark the run as completed immediately
+      const stages = await executeSelect(
+        ctx.db,
+        schema,
+        (q, p) => q.from("stage").where((s) => s.run_id === p.runId),
+        { runId },
+      );
+
+      if (stages.length === 0) {
+        logger.info("No stages scheduled, marking run as completed", { runId });
+        await updateRunStatus(ctx.db, runId, "completed");
+
+        // Also set completedAt timestamp
+        await executeUpdate(
+          ctx.db,
+          schema,
+          (q, p) =>
+            q
+              .update("run")
+              .set({ completed_at: p.completedAt })
+              .where((r) => r.id === p.runId),
+          { runId, completedAt: Date.now() },
+        );
+      } else {
+        // Flow scheduled stages via HTTP API - execution happens asynchronously
+        // Run status will be updated when final stage completes
+        logger.debug("Stages scheduled, execution continues asynchronously", {
+          runId,
+          stageCount: stages.length,
+        });
+      }
     } catch (error) {
       logger.error("Run failed with error", { runId, error });
       await updateRunStatus(ctx.db, runId, "failed");

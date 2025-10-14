@@ -14,6 +14,14 @@ validate_required_commands
 
 log_info "Market Analysis Flow - Stage: ${MAXQ_COMPLETED_STAGE:-initial}"
 
+# Handle failures first - exit early if this is a failure callback
+if [ -n "$MAXQ_FAILED_STAGE" ]; then
+  log_error "Stage failed: $MAXQ_FAILED_STAGE"
+  # Could implement recovery logic here
+  # For now, just fail the run
+  exit 1
+fi
+
 # Main flow logic based on completed stage
 case "$MAXQ_COMPLETED_STAGE" in
   "")
@@ -129,15 +137,6 @@ case "$MAXQ_COMPLETED_STAGE" in
     exit 1
     ;;
 esac
-
-# Handle failures
-if [ -n "$MAXQ_FAILED_STAGE" ]; then
-  log_error "Stage failed: $MAXQ_FAILED_STAGE"
-
-  # Could implement recovery logic here
-  # For now, just fail the run
-  exit 1
-fi
 
 log_info "Flow scheduling complete"
 exit 0

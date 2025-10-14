@@ -420,7 +420,83 @@ MaxQ spawns shell processes with:
 - Standard output: captured and logged
 - Standard error: captured and logged
 
-### 5.5 Completion Mechanism
+### 5.5 Scheduler-Driven Execution
+
+MaxQ uses a background scheduler to execute steps asynchronously, providing efficient resource utilization and scalability.
+
+**Scheduler Architecture:**
+
+- **Background Loop**: Runs continuously while server is active
+- **Interval**: Configurable via `MAXQ_SCHEDULER_INTERVAL_MS` (default: 200ms)
+- **Batch Size**: Configurable via `MAXQ_SCHEDULER_BATCH_SIZE` (default: 10)
+- **Worker ID**: Hostname-based worker identification for future clustering
+
+**Step Lifecycle:**
+
+1. **Enqueued**: When flow schedules a stage, steps are created with `queued_at` timestamp
+2. **Claimed**: Scheduler atomically claims pending steps using optimistic locking
+3. **Executing**: Step process spawned with environment variables
+4. **Completed**: Step posts fields and exits with status code
+
+**Queue Fields (Database):**
+
+```sql
+-- Additional columns in step table for scheduler
+queued_at     BIGINT,  -- When step was queued for execution
+claimed_at    BIGINT,  -- When worker claimed the step
+heartbeat_at  BIGINT,  -- Last heartbeat from worker (future use)
+worker_id     TEXT,     -- Identifier of worker executing step
+```
+
+**Dependency Resolution:**
+
+The scheduler ensures dependencies are respected:
+
+1. Queries all pending steps (status = 'pending')
+2. Filters out steps from terminated runs
+3. For each step, checks if all dependencies are completed
+4. Only claims steps with all dependencies satisfied
+5. Uses atomic UPDATE to prevent double-claiming
+
+**Atomic Claiming:**
+
+```sql
+UPDATE step
+SET status = 'running',
+    claimed_at = NOW(),
+    worker_id = 'worker-1'
+WHERE id = 'step-id'
+  AND status = 'pending'
+```
+
+Returns rows affected: 1 if claimed, 0 if already claimed by another worker.
+
+**Stage Completion Detection:**
+
+After each step completes (success or failure):
+
+1. Scheduler checks if all steps in stage are in terminal state
+2. If all complete: marks stage as completed/failed
+3. If stage not final: triggers flow callback with `MAXQ_COMPLETED_STAGE`
+4. If stage final: marks run as completed
+
+**Benefits:**
+
+- **Non-blocking API**: HTTP handlers return immediately after validation
+- **Scalable**: Can process many steps concurrently
+- **Resilient**: Steps remain queued if scheduler restarts
+- **Observable**: Queue state visible via database
+- **Future-ready**: Supports multi-worker deployment
+
+**Configuration:**
+
+```bash
+# Scheduler tuning
+MAXQ_SCHEDULER_INTERVAL_MS=50   # Faster polling for tests
+MAXQ_SCHEDULER_BATCH_SIZE=100   # Process more steps per iteration
+```
+
+### 5.6 Completion Mechanism
 
 **Primary Completion Signal: HTTP POST Calls**
 

@@ -19,7 +19,38 @@ describe("Workflow Execution E2E", () => {
     flowsRoot = await mkdtemp(join(tmpdir(), "maxq-workflow-test-"));
   });
 
-  afterEach(async () => {
+  afterEach(async function () {
+    // Wait for any active flows to complete before cleaning up
+    // This prevents the scheduler from trying to access deleted files
+    this.timeout(10000);
+
+    // Poll for all runs to reach terminal state (completed or failed)
+    // This includes pending and running flows
+    let retries = 0;
+    while (retries < 50) {
+      try {
+        // Check for any non-terminal runs (pending or running)
+        const pendingResponse = await client.get<{
+          pagination: { total: number };
+        }>("/api/v1/runs?status=pending&limit=1");
+        const runningResponse = await client.get<{
+          pagination: { total: number };
+        }>("/api/v1/runs?status=running&limit=1");
+
+        const pendingCount = pendingResponse.data?.pagination?.total || 0;
+        const runningCount = runningResponse.data?.pagination?.total || 0;
+
+        if (pendingCount === 0 && runningCount === 0) {
+          break; // All runs are in terminal state
+        }
+      } catch {
+        // Ignore errors, server might be shutting down
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      retries++;
+    }
+
+    // Now safe to clean up
     await rm(flowsRoot, { recursive: true, force: true });
   });
 
@@ -359,6 +390,12 @@ echo "Executed ${stepName}"
     await writeFile(
       flowScript,
       `#!/bin/bash
+# Exit early if this is a failure callback
+if [ -n "$MAXQ_FAILED_STAGE" ]; then
+  echo "Stage failed: $MAXQ_FAILED_STAGE, not rescheduling"
+  exit 0
+fi
+
 curl -s -X POST "$MAXQ_API/runs/$MAXQ_RUN_ID/steps" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -425,6 +462,10 @@ exit 1
           .where((s) => s.run_id === p.runId)
           .select((s) => ({ status: s.status })),
       { runId },
+      {
+        timeout: 3000,
+        condition: (rows) => rows.length > 0 && rows[0]!.status === "failed",
+      },
     );
 
     expect(stages).to.have.lengthOf(1);
@@ -789,7 +830,8 @@ exit 0
     expect(runResponse.data.flowTitle).to.equal("Market Analysis Pipeline");
   });
 
-  it("should abort and retry workflow with stage scheduling", async () => {
+  it("should abort and retry workflow with stage scheduling", async function () {
+    this.timeout(30000); // This test involves aborting and retrying a 10s step
     // Create a flow that schedules a stage with a long-running step
     const flowDir = join(flowsRoot, "abort-retry-flow");
     await mkdir(flowDir);

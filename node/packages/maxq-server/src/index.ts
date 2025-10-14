@@ -7,6 +7,7 @@ import type { DataContext } from "./domain/data-context.js";
 import type { ExecutorConfig } from "./executor/types.js";
 import { StepProcessRegistry } from "./executor/process-registry.js";
 import { performStartupCleanup } from "./startup/cleanup.js";
+import { startScheduler, stopScheduler } from "./scheduler/step-scheduler.js";
 
 // Export types for use in tests and clients
 export type {
@@ -151,6 +152,9 @@ async function start(): Promise<void> {
     app.listen(port, () => {
       logger.info("MaxQ server running", { port });
     });
+
+    // Start step scheduler
+    startScheduler(ctx);
   } catch (error) {
     logger.error("Failed to start server", { error });
     process.exit(1);
@@ -160,11 +164,13 @@ async function start(): Promise<void> {
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully");
+  stopScheduler();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   logger.info("SIGINT received, shutting down gracefully");
+  stopScheduler();
   process.exit(0);
 });
 

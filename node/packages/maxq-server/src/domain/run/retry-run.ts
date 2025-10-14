@@ -107,7 +107,7 @@ export async function retryRun(
     );
 
     // Reset all non-completed steps to pending
-    // Clear ALL timing fields to remove stale data
+    // Clear ALL timing and queue fields to remove stale data
     await executeUpdate(
       ctx.db,
       schema,
@@ -125,6 +125,10 @@ export async function retryRun(
             fields: null,
             error: null,
             retry_count: 0,
+            queued_at: null,
+            claimed_at: null,
+            heartbeat_at: null,
+            worker_id: null,
           })
           .where((s) => s.run_id === p.runId && s.status !== "completed"),
       { runId },

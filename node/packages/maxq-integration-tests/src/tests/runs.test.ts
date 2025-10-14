@@ -252,32 +252,38 @@ describe("Runs API", () => {
 
     it("should filter runs by status", async () => {
       // Create runs with different statuses
+      // Note: With scheduler-driven model, runs will be automatically executed
+      // So we mark them with different statuses explicitly
       const run1Response = await client.post<Run>("/api/v1/runs", {
-        flowName: "test-flow",
+        flowName: "test-flow-1",
       });
-      await client.post<Run>("/api/v1/runs", {
-        flowName: "test-flow",
+      const run2Response = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-flow-2",
       });
 
       // Wait for orchestrator to finish attempting execution
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Update one to running
+      // Update one to completed and one to failed
       await client.patch<Run>(`/api/v1/runs/${run1Response.data.id}`, {
-        status: "running",
+        status: "completed",
+      });
+      await client.patch<Run>(`/api/v1/runs/${run2Response.data.id}`, {
+        status: "failed",
       });
 
-      // Wait a bit for any async updates to complete
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      // Filter by status
+      // Filter by status=completed
       const response = await client.get<PaginatedResult<Run>>(
-        "/api/v1/runs?status=running",
+        "/api/v1/runs?status=completed",
       );
 
       expect(response.status).to.equal(200);
       expect(response.data.data).to.have.lengthOf(1);
-      expect(response.data.data[0]!).to.have.property("status", "running");
+      expect(response.data.data[0]!).to.have.property("status", "completed");
+      expect(response.data.data[0]!).to.have.property(
+        "id",
+        run1Response.data.id,
+      );
     });
 
     it("should handle pagination with offset", async () => {
