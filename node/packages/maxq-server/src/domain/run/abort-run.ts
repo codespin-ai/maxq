@@ -148,6 +148,7 @@ export async function abortRun(
     );
 
     // Fail all pending/running steps for this run
+    // Clear queue/timing fields to ensure clean state
     await executeUpdate(
       ctx.db,
       schema,
@@ -158,6 +159,10 @@ export async function abortRun(
             status: "failed",
             termination_reason: p.terminationReason,
             completed_at: p.completedAt,
+            queued_at: null,
+            claimed_at: null,
+            heartbeat_at: null,
+            worker_id: null,
           })
           .where(
             (s) =>

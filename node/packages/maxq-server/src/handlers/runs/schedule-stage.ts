@@ -5,8 +5,6 @@ import type { IDatabase } from "pg-promise";
 import type { DataContext } from "../../domain/data-context.js";
 import { createStage } from "../../domain/stage/create-stage.js";
 import { createStep } from "../../domain/step/create-step.js";
-import { executeStepsDAG } from "../../executor/step-executor.js";
-import type { StepDefinition } from "../../executor/step-executor.js";
 
 const logger = createLogger("maxq:handlers:runs:schedule-stage");
 
@@ -86,27 +84,28 @@ export function scheduleStageHandler(ctx: DataContext) {
       const run = runResult.data;
       const flowName = run.flowName;
 
-      // Reject scheduling if run is aborted or completed
-      if (run.status === "failed" && run.terminationReason === "aborted") {
-        logger.warn("Cannot schedule stage for aborted run", {
+      // Reject scheduling if run was terminated (aborted, server restart, etc.)
+      // Allow natural failures to schedule compensating stages
+      if (run.terminationReason != null) {
+        logger.warn("Cannot schedule stage for terminated run", {
           runId,
           stage: input.stage,
           terminationReason: run.terminationReason,
         });
         res.status(400).json({
-          error: "Cannot schedule stages for aborted run",
+          error: `Cannot schedule stages for terminated run (${run.terminationReason})`,
         });
         return;
       }
 
-      if (run.status === "completed" || run.status === "failed") {
-        logger.warn("Cannot schedule stage for completed/failed run", {
+      // Reject scheduling if run is completed
+      if (run.status === "completed") {
+        logger.warn("Cannot schedule stage for completed run", {
           runId,
           stage: input.stage,
-          status: run.status,
         });
         res.status(400).json({
-          error: `Cannot schedule stages for ${run.status} run`,
+          error: "Run already completed",
         });
         return;
       }
@@ -332,219 +331,32 @@ export function scheduleStageHandler(ctx: DataContext) {
         stepCount: createdSteps.length,
       });
 
-      // Trigger step execution asynchronously
-      // Don't wait for completion - steps run in background
-      const stepDefinitions: StepDefinition[] = input.steps.map((step) => ({
-        id: step.id,
-        name: step.name,
-        dependsOn: step.dependsOn,
-        maxRetries: step.maxRetries,
-        env: step.env,
-      }));
+      // Enqueue all steps for scheduler to pick up
+      // Set queued_at timestamp so scheduler knows they're ready
+      const now = Date.now();
+      const { executeUpdate } = await import("@webpods/tinqer-sql-pg-promise");
+      const { schema } = await import("@codespin/maxq-db");
 
-      executeStepsDAG(
-        stepDefinitions,
+      for (const step of createdSteps) {
+        await executeUpdate(
+          ctx.db,
+          schema,
+          (q, p) =>
+            q
+              .update("step")
+              .set({ queued_at: p.queuedAt })
+              .where((s) => s.id === p.stepId),
+          { stepId: step.id, queuedAt: now },
+        );
+      }
+
+      logger.info("Enqueued steps for scheduler", {
         runId,
-        flowName,
-        input.stage,
-        ctx.executor.config.flowsRoot,
-        ctx.executor.apiUrl,
-        ctx.executor.config.maxLogCapture,
-        ctx.executor.config.maxConcurrentSteps,
-        ctx.executor.processRegistry,
-        async (result) => {
-          // Step completion callback - update step in database
-          logger.debug("Step completed", {
-            runId,
-            stageName: input.stage,
-            stepId: result.id,
-            stepName: result.name,
-            exitCode: result.processResult.exitCode,
-          });
+        stageId,
+        stepCount: createdSteps.length,
+      });
 
-          // Determine status from exit code - exit code is the ONLY source of truth
-          // Fields are arbitrary JSON data for inter-step communication, not status control
-          const status: "completed" | "failed" =
-            result.processResult.exitCode === 0 ? "completed" : "failed";
-
-          logger.debug("Setting step status from exit code", {
-            stepId: result.id,
-            exitCode: result.processResult.exitCode,
-            status,
-            retryCount: result.retryCount,
-          });
-
-          // Update step with execution results
-          const { updateStep } = await import(
-            "../../domain/step/update-step.js"
-          );
-          const updateResult = await updateStep(ctx, result.id, {
-            status,
-            stdout: result.processResult.stdout,
-            stderr: result.processResult.stderr,
-            retryCount: result.retryCount,
-            completedAt: Date.now(),
-          });
-
-          // Return the final status from DB
-          if (!updateResult.success || !updateResult.data) {
-            // If update failed, fall back to computed status
-            return { finalStatus: status };
-          }
-
-          // Extract final status - should only be "completed" or "failed" at this point
-          const finalStatus = updateResult.data.status;
-          if (finalStatus !== "completed" && finalStatus !== "failed") {
-            // Should never happen, but handle gracefully
-            logger.warn("Unexpected step status after update", {
-              stepId: result.id,
-              status: finalStatus,
-            });
-            return { finalStatus: "failed" };
-          }
-
-          return { finalStatus };
-        },
-      )
-        .then(async () => {
-          // All steps completed successfully
-          logger.info("Stage completed successfully", {
-            runId,
-            stageId,
-            stageName: input.stage,
-            final: input.final,
-          });
-
-          // Mark stage as completed
-          const { updateStage } = await import(
-            "../../domain/stage/update-stage.js"
-          );
-          const stageUpdateResult = await updateStage(ctx, stageId, {
-            status: "completed",
-            completedAt: Date.now(),
-          });
-
-          if (!stageUpdateResult.success) {
-            logger.error("Failed to mark stage as completed", {
-              runId,
-              stageId,
-              errorMessage: stageUpdateResult.error.message,
-              errorStack: stageUpdateResult.error.stack,
-            });
-          }
-
-          // If final stage, mark run as completed
-          if (input.final) {
-            logger.info("Final stage completed, marking run as completed", {
-              runId,
-            });
-            const { updateRun } = await import(
-              "../../domain/run/update-run.js"
-            );
-            const runUpdateResult = await updateRun(ctx, runId, {
-              status: "completed",
-              completedAt: Date.now(),
-            });
-
-            if (!runUpdateResult.success) {
-              logger.error("Failed to mark run as completed", {
-                runId,
-                errorMessage: runUpdateResult.error.message,
-                errorStack: runUpdateResult.error.stack,
-              });
-            }
-          } else {
-            // Non-final stage: call flow with MAXQ_COMPLETED_STAGE
-            logger.info(
-              "Non-final stage completed, calling flow for next stage",
-              {
-                runId,
-                completedStage: input.stage,
-              },
-            );
-            const { executeFlowStageCompleted } = await import(
-              "../../executor/flow-executor.js"
-            );
-            await executeFlowStageCompleted({
-              runId,
-              flowName,
-              flowsRoot: ctx.executor.config.flowsRoot,
-              apiUrl: ctx.executor.apiUrl,
-              maxLogCapture: ctx.executor.config.maxLogCapture,
-              processRegistry: ctx.executor.processRegistry,
-              completedStage: input.stage,
-            });
-          }
-        })
-        .catch(async (error) => {
-          logger.error("Stage execution failed", {
-            runId,
-            stageId,
-            stageName: input.stage,
-            error,
-          });
-
-          // Mark stage as failed
-          const { updateStage } = await import(
-            "../../domain/stage/update-stage.js"
-          );
-          const stageUpdateResult = await updateStage(ctx, stageId, {
-            status: "failed",
-            completedAt: Date.now(),
-          });
-
-          if (!stageUpdateResult.success) {
-            logger.error("Failed to mark stage as failed", {
-              runId,
-              stageId,
-              errorMessage: stageUpdateResult.error.message,
-              errorStack: stageUpdateResult.error.stack,
-            });
-          }
-
-          // Call flow with MAXQ_FAILED_STAGE per spec §10.2
-          logger.info("Calling flow with MAXQ_FAILED_STAGE", {
-            runId,
-            failedStage: input.stage,
-          });
-          const { executeFlowStageFailed } = await import(
-            "../../executor/flow-executor.js"
-          );
-          try {
-            await executeFlowStageFailed({
-              runId,
-              flowName,
-              flowsRoot: ctx.executor.config.flowsRoot,
-              apiUrl: ctx.executor.apiUrl,
-              maxLogCapture: ctx.executor.config.maxLogCapture,
-              processRegistry: ctx.executor.processRegistry,
-              failedStage: input.stage,
-            });
-          } catch (flowError) {
-            logger.error("Flow callback failed after stage failure", {
-              runId,
-              failedStage: input.stage,
-              error: flowError,
-            });
-          }
-
-          // Mark run as failed
-          const { updateRun } = await import("../../domain/run/update-run.js");
-          const runUpdateResult = await updateRun(ctx, runId, {
-            status: "failed",
-            completedAt: Date.now(),
-          });
-
-          if (!runUpdateResult.success) {
-            logger.error("Failed to mark run as failed", {
-              runId,
-              errorMessage: runUpdateResult.error.message,
-              errorStack: runUpdateResult.error.stack,
-            });
-          }
-        });
-
-      // Return response immediately (execution happens in background)
+      // Return response immediately - scheduler will handle execution
       res.status(201).json({
         stage: input.stage,
         scheduled: createdSteps.length,

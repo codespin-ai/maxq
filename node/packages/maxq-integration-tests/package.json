@@ -7,8 +7,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test:build": "tsc --noEmit",
-    "test": "LOG_LEVEL=error mocha",
-    "test:grep": "mocha --grep",
+    "test": "LOG_LEVEL=error mocha --timeout 10000",
+    "test:grep": "LOG_LEVEL=error mocha --timeout 10000 --grep",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix"
   },

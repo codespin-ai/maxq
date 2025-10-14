@@ -180,9 +180,7 @@ exit 0
         timeout: 10000,
         condition: (rows) =>
           rows.length === 5 &&
-          rows.every(
-            (r) => r.status === "completed" || r.status === "failed",
-          ),
+          rows.every((r) => r.status === "completed" || r.status === "failed"),
       },
     );
 
