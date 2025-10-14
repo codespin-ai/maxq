@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq-test-utils",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Testing utilities for MaxQ",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 /**
  * MaxQ Core Tables Migration
- * Creates: run, stage, step tables
+ * Creates: run, stage, step, run_log tables with all fields
  */
 
 /**
@@ -57,7 +57,7 @@ export async function up(knex) {
     table.unique(["run_id", "name"], { indexName: "idx_stage_run_name" });
   });
 
-  // Create step table
+  // Create step table with scheduler queue fields
   await knex.schema.createTable("step", (table) => {
     table.text("id").primary(); // Unique step ID supplied by flow (e.g., "fetch-news", "analyzer-0")
     table
@@ -88,11 +88,18 @@ export async function up(knex) {
     table.text("stderr"); // Captured stderr from step.sh process
     table.text("termination_reason"); // Reason for termination: 'aborted', 'server_restart', etc.
 
+    // Scheduler queue and heartbeat tracking fields
+    table.bigInteger("queued_at"); // When scheduler queued this step
+    table.bigInteger("claimed_at"); // When worker claimed this step
+    table.bigInteger("heartbeat_at"); // Last worker heartbeat timestamp
+    table.text("worker_id"); // Worker process/thread identifier
+
     // Indexes
     table.index("run_id", "idx_step_run_id");
     table.index("stage_id", "idx_step_stage_id");
     table.index("status", "idx_step_status");
     table.index(["run_id", "name"], "idx_step_name");
+    table.index(["status", "queued_at"], "idx_step_scheduler_queue"); // For efficient scheduler queries
     table.unique(["run_id", "id"], { indexName: "idx_step_id" }); // Enforce ID uniqueness within run
   });
 
