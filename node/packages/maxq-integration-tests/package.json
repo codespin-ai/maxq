@@ -1,6 +1,6 @@
 {
   "name": "@codespin/maxq-integration-tests",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Integration tests for MaxQ",
   "type": "module",
   "private": true,
@@ -28,7 +28,7 @@
     "mocha": "^11.0.1",
     "chai": "^5.1.2",
     "chai-as-promised": "^8.0.0",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
 }
