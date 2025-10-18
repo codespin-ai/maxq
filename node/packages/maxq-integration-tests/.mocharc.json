@@ -1,5 +1,5 @@
 {
-  "loader": "ts-node/esm",
+  "node-option": ["import=tsx"],
   "spec": "src/tests/**/*.test.ts",
   "timeout": 60000,
   "recursive": true,
