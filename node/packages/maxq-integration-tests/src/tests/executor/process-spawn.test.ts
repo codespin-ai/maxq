@@ -216,7 +216,7 @@ echo "Done"
       const scriptPath = join(tempDir, "nonexistent.sh");
 
       await expect(spawnProcess(scriptPath, {}, tempDir)).to.be.rejectedWith(
-        /not executable/,
+        /does not exist/,
       );
     });
 

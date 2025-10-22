@@ -4,7 +4,7 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import { testDb, client, testServer } from "../test-setup.js";
+import { testDb, client, testServer, defaultFlowsRoot } from "../test-setup.js";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -20,7 +20,10 @@ describe("Cascade Failure with Dependencies", () => {
 
   afterEach(async function () {
     this.timeout(10000);
+    // Clean up temp directory
     await rm(flowsRoot, { recursive: true, force: true });
+    // Restore original flowsRoot
+    await testServer.reconfigure({ flowsRoot: defaultFlowsRoot });
   });
 
   it("should cascade failure to dependent steps when prerequisite fails", async () => {

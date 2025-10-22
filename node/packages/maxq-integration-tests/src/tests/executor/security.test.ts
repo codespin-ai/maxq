@@ -218,7 +218,7 @@ describe("Executor Security Utilities", () => {
         "@codespin/maxq-server/dist/executor/security.js"
       );
       await expect(validateExecutable(scriptPath)).to.be.rejectedWith(
-        /not executable/,
+        /does not exist/,
       );
     });
   });
