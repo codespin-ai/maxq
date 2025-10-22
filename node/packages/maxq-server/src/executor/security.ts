@@ -77,10 +77,26 @@ export function resolveSafePath(basePath: string, ...parts: string[]): string {
  */
 export async function validateExecutable(scriptPath: string): Promise<void> {
   try {
-    await access(scriptPath, constants.F_OK | constants.X_OK);
+    // First check if file exists
+    await access(scriptPath, constants.F_OK);
+  } catch (error) {
+    const nodeError = error as Error & { code?: string };
+    if (nodeError.code === "ENOENT") {
+      logger.error("Script does not exist", { scriptPath });
+      throw new Error(`Script does not exist: ${scriptPath}`);
+    }
+    logger.error("Cannot access script", { scriptPath, error });
+    throw new Error(`Cannot access script: ${scriptPath}`);
+  }
+
+  try {
+    // Then check if it's executable
+    await access(scriptPath, constants.X_OK);
   } catch (error) {
     logger.error("Script not executable", { scriptPath, error });
-    throw new Error(`Script not executable: ${scriptPath}`);
+    throw new Error(
+      `Script exists but is not executable: ${scriptPath}. Run: chmod +x ${scriptPath}`,
+    );
   }
 }
 

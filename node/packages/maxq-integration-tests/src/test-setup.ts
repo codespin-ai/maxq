@@ -26,42 +26,62 @@ const currentFile = new URL(import.meta.url).pathname;
 const srcDir = join(currentFile, ".."); // src/
 const packageRoot = join(srcDir, ".."); // maxq-integration-tests/
 const packagesDir = join(packageRoot, ".."); // packages/
-const flowsRoot = join(packagesDir, "maxq-server/flows");
+export const defaultFlowsRoot = join(packagesDir, "maxq-server/flows");
 
 export const testServer = new TestServer({
   port: 5099,
   dbName: "maxq_test",
   logger: testLogger,
-  flowsRoot, // Explicitly set flows root
+  flowsRoot: defaultFlowsRoot, // Explicitly set flows root
 });
 export const client = new TestHttpClient(`http://localhost:5099`);
 
 /**
  * Wait for all active flows to complete by polling the API
  * This works across process boundaries (test process -> spawned server process)
+ * Waits for both pending and running flows to reach terminal states
  */
 async function waitForActiveFlows(): Promise<void> {
   const maxWait = 10000; // 10 seconds (increased for scheduler-driven execution)
   const interval = 100; // Check every 100ms (less frequent polling)
   const startTime = Date.now();
-  let lastActiveCount = -1;
+  let lastPendingCount = -1;
+  let lastRunningCount = -1;
 
   while (Date.now() - startTime < maxWait) {
     try {
-      const response = await client.get<PaginatedResult<Run>>(
+      // Check for pending runs
+      const pendingResponse = await client.get<PaginatedResult<Run>>(
+        "/api/v1/runs?status=pending&limit=10",
+      );
+
+      // Check for running runs
+      const runningResponse = await client.get<PaginatedResult<Run>>(
         "/api/v1/runs?status=running&limit=10",
       );
 
-      // Check if response has the expected structure
-      if (response.status === 200 && response.data?.pagination) {
-        const activeCount = response.data.pagination.total;
+      // Check if responses have the expected structure
+      if (
+        pendingResponse.status === 200 &&
+        pendingResponse.data?.pagination &&
+        runningResponse.status === 200 &&
+        runningResponse.data?.pagination
+      ) {
+        const pendingCount = pendingResponse.data.pagination.total;
+        const runningCount = runningResponse.data.pagination.total;
 
-        if (activeCount !== lastActiveCount) {
-          testLogger.debug(`Active flows: ${activeCount}`);
-          lastActiveCount = activeCount;
+        if (
+          pendingCount !== lastPendingCount ||
+          runningCount !== lastRunningCount
+        ) {
+          testLogger.debug(
+            `Active flows - pending: ${pendingCount}, running: ${runningCount}`,
+          );
+          lastPendingCount = pendingCount;
+          lastRunningCount = runningCount;
         }
 
-        if (activeCount === 0) {
+        if (pendingCount === 0 && runningCount === 0) {
           return; // No active flows
         }
       }
@@ -75,7 +95,7 @@ async function waitForActiveFlows(): Promise<void> {
   }
 
   testLogger.warn(
-    `Timeout waiting for active flows to complete (last count: ${lastActiveCount})`,
+    `Timeout waiting for active flows to complete (last pending: ${lastPendingCount}, last running: ${lastRunningCount})`,
   );
 }
 
@@ -85,7 +105,7 @@ async function waitForActiveFlows(): Promise<void> {
  */
 async function createDummyFlows(): Promise<void> {
   try {
-    testLogger.info(`Creating dummy flows in: ${flowsRoot}`);
+    testLogger.info(`Creating dummy flows in: ${defaultFlowsRoot}`);
 
     // Flow names used in runs.test.ts
     const flowNames = [
@@ -93,6 +113,8 @@ async function createDummyFlows(): Promise<void> {
       "market-analysis",
       "data-pipeline",
       "test-flow",
+      "test-flow-1",
+      "test-flow-2",
       "flow-1",
       "flow-2",
       "flow-3",
@@ -112,7 +134,7 @@ exit 0
 `;
 
     for (const flowName of flowNames) {
-      const flowDir = join(flowsRoot, flowName);
+      const flowDir = join(defaultFlowsRoot, flowName);
       await mkdir(flowDir, { recursive: true });
 
       const flowPath = join(flowDir, "flow.sh");
