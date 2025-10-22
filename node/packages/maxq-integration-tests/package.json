@@ -17,8 +17,7 @@
     "@codespin/maxq-logger": "file:../maxq-logger",
     "@codespin/maxq-db": "file:../maxq-db",
     "@codespin/maxq-server": "file:../maxq-server",
-    "@codespin/maxq-test-utils": "file:../maxq-test-utils",
-    "node-fetch": "^3.3.2"
+    "@codespin/maxq-test-utils": "file:../maxq-test-utils"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
