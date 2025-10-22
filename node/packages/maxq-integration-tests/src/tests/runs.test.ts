@@ -907,4 +907,385 @@ describe("Runs API", () => {
       });
     });
   });
+
+  describe("POST /api/v1/runs/:runId/pause", () => {
+    it("should pause a pending run", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Pause it
+      const pauseResponse = await client.post<{
+        message: string;
+        processesKilled: number;
+      }>(`/api/v1/runs/${runId}/pause`);
+
+      expect(pauseResponse.status).to.equal(200);
+      expect(pauseResponse.data.message).to.equal("Run paused successfully");
+
+      // Verify run status
+      const getResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+      expect(getResponse.data.status).to.equal("paused");
+    });
+
+    it("should not pause an already completed run", async () => {
+      // Create a run and mark it as completed
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Mark as completed
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "completed",
+        completedAt: Date.now(),
+      });
+
+      // Try to pause
+      const pauseResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/pause`,
+        {},
+      );
+
+      expect(pauseResponse.status).to.equal(400);
+      expect(pauseResponse.data.error).to.include("already completed");
+    });
+
+    it("should not pause an already failed run", async () => {
+      // Create a run and mark it as failed
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Mark as failed
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "failed",
+        completedAt: Date.now(),
+      });
+
+      // Try to pause
+      const pauseResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/pause`,
+        {},
+      );
+
+      expect(pauseResponse.status).to.equal(400);
+      expect(pauseResponse.data.error).to.include("already failed");
+    });
+
+    it("should return 404 for non-existent run", async () => {
+      const pauseResponse = await client.post<{ error: string }>(
+        "/api/v1/runs/non-existent-id/pause",
+        {},
+      );
+
+      expect(pauseResponse.status).to.equal(404);
+      expect(pauseResponse.data.error).to.include("not found");
+    });
+  });
+
+  describe("POST /api/v1/runs/:runId/resume", () => {
+    it("should resume a paused run", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Pause it
+      await client.post(`/api/v1/runs/${runId}/pause`);
+
+      // Verify it's paused
+      const pausedRun = await client.get<Run>(`/api/v1/runs/${runId}`);
+      expect(pausedRun.data.status).to.equal("paused");
+
+      // Resume it
+      const resumeResponse = await client.post<{
+        run: Run;
+        message: string;
+      }>(`/api/v1/runs/${runId}/resume`);
+
+      expect(resumeResponse.status).to.equal(200);
+      expect(resumeResponse.data.message).to.equal("Run resumed successfully");
+      expect(resumeResponse.data.run.status).to.equal("pending");
+    });
+
+    it("should not resume a non-paused run", async () => {
+      // Create a run (not paused)
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Try to resume
+      const resumeResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/resume`,
+        {},
+      );
+
+      expect(resumeResponse.status).to.equal(400);
+      expect(resumeResponse.data.error).to.include("cannot be resumed");
+    });
+
+    it("should not resume a completed run", async () => {
+      // Create a run and mark it as completed
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Mark as completed
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "completed",
+        completedAt: Date.now(),
+      });
+
+      // Try to resume
+      const resumeResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/resume`,
+        {},
+      );
+
+      expect(resumeResponse.status).to.equal(400);
+      expect(resumeResponse.data.error).to.include("cannot be resumed");
+    });
+
+    it("should return 404 for non-existent run", async () => {
+      const resumeResponse = await client.post<{ error: string }>(
+        "/api/v1/runs/non-existent-id/resume",
+        {},
+      );
+
+      expect(resumeResponse.status).to.equal(404);
+      expect(resumeResponse.data.error).to.include("not found");
+    });
+  });
+
+  describe("POST /api/v1/runs/:runId/steps/:stepId/retry", () => {
+    it("should retry a failed step without cascading", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Manually insert a stage and a failed step
+      await testDb.insertStage({
+        id: "stage-1",
+        run_id: runId,
+        name: "test-stage",
+        final: false,
+        status: "failed",
+        created_at: Date.now(),
+      });
+
+      await testDb.insertStep({
+        id: "step-1",
+        run_id: runId,
+        stage_id: "stage-1",
+        name: "test-step",
+        status: "failed",
+        depends_on: [],
+        retry_count: 0,
+        max_retries: 3,
+        created_at: Date.now(),
+      });
+
+      // Mark run as failed
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "failed",
+      });
+
+      // Retry the step without cascading
+      const retryResponse = await client.post<{
+        step: Run;
+        cascadedSteps: Run[];
+        message: string;
+      }>(`/api/v1/runs/${runId}/steps/step-1/retry`, {
+        cascadeDownstream: false,
+      });
+
+      expect(retryResponse.status).to.equal(200);
+      expect(retryResponse.data.message).to.equal("Step retried successfully");
+      expect(retryResponse.data.step.status).to.equal("pending");
+      expect(retryResponse.data.cascadedSteps).to.have.lengthOf(0);
+
+      // Verify run status changed to running
+      const runResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+      expect(runResponse.data.status).to.equal("running");
+    });
+
+    it("should retry a failed step with cascading to dependent steps", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Insert stage
+      await testDb.insertStage({
+        id: "stage-1",
+        run_id: runId,
+        name: "test-stage",
+        final: false,
+        status: "failed",
+        created_at: Date.now(),
+      });
+
+      // Insert failed step
+      await testDb.insertStep({
+        id: "step-1",
+        run_id: runId,
+        stage_id: "stage-1",
+        name: "test-step-1",
+        status: "failed",
+        depends_on: [],
+        retry_count: 0,
+        max_retries: 3,
+        created_at: Date.now(),
+      });
+
+      // Insert dependent step (depends on step-1)
+      await testDb.insertStep({
+        id: "step-2",
+        run_id: runId,
+        stage_id: "stage-1",
+        name: "test-step-2",
+        status: "failed",
+        depends_on: ["step-1"],
+        retry_count: 0,
+        max_retries: 3,
+        created_at: Date.now(),
+      });
+
+      // Mark run as failed
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "failed",
+      });
+
+      // Retry the step with cascading
+      const retryResponse = await client.post<{
+        step: Run;
+        cascadedSteps: Run[];
+        message: string;
+      }>(`/api/v1/runs/${runId}/steps/step-1/retry`, {
+        cascadeDownstream: true,
+      });
+
+      expect(retryResponse.status).to.equal(200);
+      expect(retryResponse.data.step.status).to.equal("pending");
+      expect(retryResponse.data.cascadedSteps).to.have.lengthOf(1);
+      expect(retryResponse.data.cascadedSteps[0]?.id).to.equal("step-2");
+      expect(retryResponse.data.cascadedSteps[0]?.status).to.equal("pending");
+      expect(retryResponse.data.message).to.include("1 dependent steps");
+    });
+
+    it("should not retry a non-failed step", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Insert stage and completed step
+      await testDb.insertStage({
+        id: "stage-1",
+        run_id: runId,
+        name: "test-stage",
+        final: false,
+        status: "completed",
+        created_at: Date.now(),
+      });
+
+      await testDb.insertStep({
+        id: "step-1",
+        run_id: runId,
+        stage_id: "stage-1",
+        name: "test-step",
+        status: "completed",
+        depends_on: [],
+        retry_count: 0,
+        max_retries: 3,
+        created_at: Date.now(),
+      });
+
+      // Mark run as failed so it's not actively running
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "failed",
+      });
+
+      // Try to retry a completed step
+      const retryResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/steps/step-1/retry`,
+        {},
+      );
+
+      expect(retryResponse.status).to.equal(400);
+      expect(retryResponse.data.error).to.include("only failed steps");
+    });
+
+    it("should not retry a step from a completed run", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      // Insert stage and step
+      await testDb.insertStage({
+        id: "stage-1",
+        run_id: runId,
+        name: "test-stage",
+        final: false,
+        status: "completed",
+        created_at: Date.now(),
+      });
+
+      await testDb.insertStep({
+        id: "step-1",
+        run_id: runId,
+        stage_id: "stage-1",
+        name: "test-step",
+        status: "failed",
+        depends_on: [],
+        retry_count: 0,
+        max_retries: 3,
+        created_at: Date.now(),
+      });
+
+      // Mark run as completed
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "completed",
+        completedAt: Date.now(),
+      });
+
+      // Try to retry
+      const retryResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/steps/step-1/retry`,
+        {},
+      );
+
+      expect(retryResponse.status).to.equal(400);
+      expect(retryResponse.data.error).to.include("run is completed");
+    });
+
+    it("should return 404 for non-existent step", async () => {
+      // Create a run
+      const createResponse = await client.post<Run>("/api/v1/runs", {
+        flowName: "test-workflow",
+      });
+      const runId = createResponse.data.id;
+
+      const retryResponse = await client.post<{ error: string }>(
+        `/api/v1/runs/${runId}/steps/non-existent-step/retry`,
+        {},
+      );
+
+      expect(retryResponse.status).to.equal(404);
+      expect(retryResponse.data.error).to.include("not found");
+    });
+  });
 });

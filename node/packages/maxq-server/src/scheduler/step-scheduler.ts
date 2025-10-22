@@ -143,8 +143,8 @@ async function pickAndClaimSteps(
     return; // No work to do
   }
 
-  // Filter out steps from terminated runs
-  // For each pending step, check if its run is terminated
+  // Filter out steps from terminated or paused runs
+  // For each pending step, check if its run is active (not terminated and not paused)
   const pendingSteps = [];
   for (const step of allPendingSteps) {
     const runs = await executeSelect(
@@ -157,13 +157,18 @@ async function pickAndClaimSteps(
           .select((r) => ({
             id: r.id,
             flow_name: r.flow_name,
+            status: r.status,
             termination_reason: r.termination_reason,
           })),
       { runId: step.run_id },
     );
 
-    if (runs.length > 0 && runs[0]!.termination_reason === null) {
-      // Run exists and is not terminated
+    if (
+      runs.length > 0 &&
+      runs[0]!.termination_reason === null &&
+      runs[0]!.status !== "paused"
+    ) {
+      // Run exists, is not terminated, and is not paused
       pendingSteps.push({
         step,
         run: runs[0]!,
