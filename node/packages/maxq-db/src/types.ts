@@ -8,7 +8,12 @@ export type DatabaseConfig =
   | { type: "sqlite"; path: string };
 
 // Run status values
-export type RunStatus = "pending" | "running" | "completed" | "failed";
+export type RunStatus =
+  | "pending"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed";
 
 // Stage status values
 export type StageStatus = "pending" | "running" | "completed" | "failed";

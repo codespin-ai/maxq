@@ -9,6 +9,9 @@ import { postStepFieldsHandler } from "../handlers/runs/post-step-fields.js";
 import { queryFieldsHandler } from "../handlers/runs/query-fields.js";
 import { abortRunHandler } from "../handlers/runs/abort-run.js";
 import { retryRunHandler } from "../handlers/runs/retry-run.js";
+import { pauseRunHandler } from "../handlers/runs/pause-run.js";
+import { resumeRunHandler } from "../handlers/runs/resume-run.js";
+import { retryStepHandler } from "../handlers/runs/retry-step.js";
 import { createRunLogHandler } from "../handlers/runs/create-run-log.js";
 import { listRunLogsHandler } from "../handlers/runs/list-run-logs.js";
 
@@ -27,8 +30,17 @@ export function createRunsRouter(ctx: DataContext): Router {
   // Abort endpoint - abort a running workflow
   router.post("/:runId/abort", abortRunHandler(ctx, abortGraceMs));
 
+  // Pause endpoint - pause a running workflow
+  router.post("/:runId/pause", pauseRunHandler(ctx, abortGraceMs));
+
+  // Resume endpoint - resume a paused workflow
+  router.post("/:runId/resume", resumeRunHandler(ctx));
+
   // Retry endpoint - retry a failed or aborted workflow
   router.post("/:runId/retry", retryRunHandler(ctx));
+
+  // Retry step endpoint - retry a specific failed step
+  router.post("/:runId/steps/:stepId/retry", retryStepHandler(ctx));
 
   // Run logs endpoints - create and list run logs
   router.post("/:runId/logs", createRunLogHandler(ctx));

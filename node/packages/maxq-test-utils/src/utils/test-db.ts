@@ -146,6 +146,90 @@ export class TestDatabase {
   }
 
   /**
+   * Insert a stage for testing purposes
+   */
+  public async insertStage(stage: {
+    id: string;
+    run_id: string;
+    name: string;
+    final: boolean;
+    status: string;
+    created_at: number;
+    started_at?: number;
+    completed_at?: number;
+    termination_reason?: string;
+  }): Promise<void> {
+    if (!this.pgDb) throw new Error("Database not initialized");
+    await this.pgDb.none(
+      `INSERT INTO stage (id, run_id, name, final, status, created_at, started_at, completed_at, termination_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        stage.id,
+        stage.run_id,
+        stage.name,
+        stage.final,
+        stage.status,
+        stage.created_at,
+        stage.started_at || null,
+        stage.completed_at || null,
+        stage.termination_reason || null,
+      ],
+    );
+  }
+
+  /**
+   * Insert a step for testing purposes
+   */
+  public async insertStep(step: {
+    id: string;
+    run_id: string;
+    stage_id: string;
+    name: string;
+    status: string;
+    depends_on: string[];
+    retry_count: number;
+    max_retries: number;
+    created_at: number;
+    env?: Record<string, string>;
+    fields?: Record<string, unknown>;
+    error?: unknown;
+    started_at?: number;
+    completed_at?: number;
+    duration_ms?: number;
+    stdout?: string;
+    stderr?: string;
+    termination_reason?: string;
+  }): Promise<void> {
+    if (!this.pgDb) throw new Error("Database not initialized");
+    await this.pgDb.none(
+      `INSERT INTO step (id, run_id, stage_id, name, status, depends_on, retry_count, max_retries,
+        env, fields, error, created_at, started_at, completed_at, duration_ms, stdout, stderr,
+        termination_reason, queued_at, claimed_at, heartbeat_at, worker_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NULL, NULL, NULL, NULL)`,
+      [
+        step.id,
+        step.run_id,
+        step.stage_id,
+        step.name,
+        step.status,
+        JSON.stringify(step.depends_on),
+        step.retry_count,
+        step.max_retries,
+        step.env ? JSON.stringify(step.env) : null,
+        step.fields ? JSON.stringify(step.fields) : null,
+        step.error ? JSON.stringify(step.error) : null,
+        step.created_at,
+        step.started_at || null,
+        step.completed_at || null,
+        step.duration_ms || null,
+        step.stdout || null,
+        step.stderr || null,
+        step.termination_reason || null,
+      ],
+    );
+  }
+
+  /**
    * Wait for a Tinqer query to return rows that match a condition
    * Polls the database at regular intervals until condition is met or timeout
    * Uses type-safe Tinqer query builder
