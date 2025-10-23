@@ -62,70 +62,95 @@ export class TestSignalHub {
   }
 
   private setupRoutes(): void {
-    // Emit a signal (with optional payload)
-    this.app.post(
-      "/signal/:testId/:signalName",
-      (req: Request, res: Response) => {
-        const { testId, signalName } = req.params;
-        const payload = req.body?.payload;
+    // IMPORTANT: Register more specific routes BEFORE general parameterized routes
 
-        if (!testId || !signalName) {
-          res.status(400).json({ error: "testId and signalName required" });
-          return;
+    // Wait for multiple signals (AND wait) - MUST be before /signal/:testId/:signalName
+    this.app.post("/signal/:testId/wait-all", (req: Request, res: Response) => {
+      const { testId } = req.params;
+      const { signals: signalNames, timeout = 30000 } = req.body;
+
+      if (!testId || !Array.isArray(signalNames) || signalNames.length === 0) {
+        res.status(400).json({ error: "testId and signals array required" });
+        return;
+      }
+
+      // Collect already-existing signals and determine which are missing
+      const testEvents = this.events.get(testId);
+      const receivedEvents: Record<string, SignalEvent> = {};
+      const missingSignals: string[] = [];
+
+      for (const name of signalNames) {
+        const events = testEvents?.get(name);
+        if (events && events.length > 0) {
+          const lastEvent = events[events.length - 1];
+          if (lastEvent) {
+            receivedEvents[name] = lastEvent;
+          } else {
+            missingSignals.push(name);
+          }
+        } else {
+          missingSignals.push(name);
         }
+      }
 
-        // Get or initialize sequence counter
-        if (!this.sequences.has(testId)) {
-          this.sequences.set(testId, new Map());
+      // If all signals already exist, return immediately
+      if (missingSignals.length === 0) {
+        res.status(200).json({ signaled: true, events: receivedEvents });
+        return;
+      }
+
+      // Set up wait for missing signals
+      const remainingSignals = new Set(missingSignals);
+      let timeoutHandle: NodeJS.Timeout;
+      let resolved = false;
+
+      const checkComplete = () => {
+        if (resolved) return;
+        if (remainingSignals.size === 0) {
+          resolved = true;
+          clearTimeout(timeoutHandle);
+          res.status(200).json({ signaled: true, events: receivedEvents });
         }
-        const testSeqs = this.sequences.get(testId)!;
-        const currentSeq = (testSeqs.get(signalName) || 0) + 1;
-        testSeqs.set(signalName, currentSeq);
+      };
 
-        // Create event
-        const event: SignalEvent = {
-          seq: currentSeq,
-          ts: Date.now(),
-          payload,
+      timeoutHandle = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          res.status(408).json({
+            signaled: false,
+            error: "timeout",
+            remaining: Array.from(remainingSignals),
+          });
+        }
+      }, timeout);
+
+      // Set up waiters for each missing signal
+      for (const signalName of missingSignals) {
+        const waiter: PendingWaiter = {
+          signal: signalName,
+          resolve: (event) => {
+            if (event && !resolved) {
+              receivedEvents[signalName] = event;
+              remainingSignals.delete(signalName);
+              checkComplete();
+            }
+          },
+          timeoutHandle,
+          baselineSeq: 0,
         };
 
-        // Store the event
-        if (!this.events.has(testId)) {
-          this.events.set(testId, new Map());
+        if (!this.waiters.has(testId)) {
+          this.waiters.set(testId, new Map());
         }
-        const testEvents = this.events.get(testId)!;
-        if (!testEvents.has(signalName)) {
-          testEvents.set(signalName, []);
+        const testWaiters = this.waiters.get(testId)!;
+        if (!testWaiters.has(signalName)) {
+          testWaiters.set(signalName, []);
         }
-        testEvents.get(signalName)!.push(event);
+        testWaiters.get(signalName)!.push(waiter);
+      }
+    });
 
-        // Resolve any pending waiters for this signal
-        const testWaiters = this.waiters.get(testId);
-        if (testWaiters) {
-          const signalWaiters = testWaiters.get(signalName) || [];
-          for (const waiter of signalWaiters) {
-            // Only resolve if this event's seq is greater than waiter's baseline
-            if (event.seq > waiter.baselineSeq) {
-              clearTimeout(waiter.timeoutHandle);
-              waiter.resolve(event);
-            }
-          }
-          // Remove resolved waiters
-          const remaining = signalWaiters.filter(
-            (w) => event.seq <= w.baselineSeq,
-          );
-          if (remaining.length > 0) {
-            testWaiters.set(signalName, remaining);
-          } else {
-            testWaiters.delete(signalName);
-          }
-        }
-
-        res.status(200).json({ success: true, seq: currentSeq, ts: event.ts });
-      },
-    );
-
-    // Wait for a signal (long-polling with baseline sequence)
+    // Wait for a signal (long-polling with baseline sequence) - MUST be before /signal/:testId/:signalName
     this.app.post(
       "/signal/:testId/:signalName/wait",
       (req: Request, res: Response) => {
@@ -191,97 +216,74 @@ export class TestSignalHub {
           if (event) {
             res.status(200).json({ signaled: true, event });
           } else {
-            res.status(408).json({ signaled: false, error: "timeout" });
+            res.status(200).json({ signaled: false, error: "timeout" });
           }
         });
       },
     );
 
-    // Wait for multiple signals (AND wait)
-    this.app.post("/signal/:testId/wait-all", (req: Request, res: Response) => {
-      const { testId } = req.params;
-      const { signals: signalNames, timeout = 30000 } = req.body;
+    // Emit a signal (with optional payload)
+    this.app.post(
+      "/signal/:testId/:signalName",
+      (req: Request, res: Response) => {
+        const { testId, signalName } = req.params;
+        const payload = req.body?.payload;
 
-      if (!testId || !Array.isArray(signalNames) || signalNames.length === 0) {
-        res.status(400).json({ error: "testId and signals array required" });
-        return;
-      }
-
-      // Check if all signals already exist
-      const testEvents = this.events.get(testId);
-      const allExist =
-        testEvents &&
-        signalNames.every((name) => {
-          const events = testEvents.get(name);
-          return events && events.length > 0;
-        });
-
-      if (allExist && testEvents) {
-        const events: Record<string, SignalEvent> = {};
-        for (const name of signalNames) {
-          const signalEvents = testEvents.get(name);
-          if (signalEvents && signalEvents.length > 0) {
-            const lastEvent = signalEvents[signalEvents.length - 1];
-            if (lastEvent) {
-              events[name] = lastEvent;
-            }
-          }
+        if (!testId || !signalName) {
+          res.status(400).json({ error: "testId and signalName required" });
+          return;
         }
-        res.status(200).json({ signaled: true, events });
-        return;
-      }
 
-      // Set up wait-all promise
-      const remainingSignals = new Set(signalNames);
-      const receivedEvents: Record<string, SignalEvent> = {};
-      let timeoutHandle: NodeJS.Timeout;
-      let resolved = false;
-
-      const checkComplete = () => {
-        if (resolved) return;
-        if (remainingSignals.size === 0) {
-          resolved = true;
-          clearTimeout(timeoutHandle);
-          res.status(200).json({ signaled: true, events: receivedEvents });
+        // Get or initialize sequence counter
+        if (!this.sequences.has(testId)) {
+          this.sequences.set(testId, new Map());
         }
-      };
+        const testSeqs = this.sequences.get(testId)!;
+        const currentSeq = (testSeqs.get(signalName) || 0) + 1;
+        testSeqs.set(signalName, currentSeq);
 
-      timeoutHandle = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          res.status(408).json({
-            signaled: false,
-            error: "timeout",
-            remaining: Array.from(remainingSignals),
-          });
-        }
-      }, timeout);
-
-      // Set up waiters for each missing signal
-      for (const signalName of signalNames) {
-        const waiter: PendingWaiter = {
-          signal: signalName,
-          resolve: (event) => {
-            if (event && !resolved) {
-              receivedEvents[signalName] = event;
-              remainingSignals.delete(signalName);
-              checkComplete();
-            }
-          },
-          timeoutHandle,
-          baselineSeq: 0,
+        // Create event
+        const event: SignalEvent = {
+          seq: currentSeq,
+          ts: Date.now(),
+          payload,
         };
 
-        if (!this.waiters.has(testId)) {
-          this.waiters.set(testId, new Map());
+        // Store the event
+        if (!this.events.has(testId)) {
+          this.events.set(testId, new Map());
         }
-        const testWaiters = this.waiters.get(testId)!;
-        if (!testWaiters.has(signalName)) {
-          testWaiters.set(signalName, []);
+        const testEvents = this.events.get(testId)!;
+        if (!testEvents.has(signalName)) {
+          testEvents.set(signalName, []);
         }
-        testWaiters.get(signalName)!.push(waiter);
-      }
-    });
+        testEvents.get(signalName)!.push(event);
+
+        // Resolve any pending waiters for this signal
+        const testWaiters = this.waiters.get(testId);
+        if (testWaiters) {
+          const signalWaiters = testWaiters.get(signalName) || [];
+          for (const waiter of signalWaiters) {
+            // Only resolve if this event's seq is greater than waiter's baseline
+            if (event.seq > waiter.baselineSeq) {
+              clearTimeout(waiter.timeoutHandle);
+              waiter.resolve(event);
+            }
+          }
+          // Remove resolved waiters
+          const remaining = signalWaiters.filter(
+            (w) => event.seq <= w.baselineSeq,
+          );
+          if (remaining.length > 0) {
+            testWaiters.set(signalName, remaining);
+          } else {
+            testWaiters.delete(signalName);
+          }
+        }
+
+        res.status(200).json({ success: true, seq: currentSeq, ts: event.ts });
+      },
+    );
 
     // Clear all signals for a test
     this.app.delete("/signal/:testId", (req: Request, res: Response) => {
