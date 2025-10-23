@@ -108,6 +108,14 @@ export async function executeStep(
     ...(userEnv || {}),
   };
 
+  // Pass through signal URL and test ID if present (for test coordination)
+  if (process.env.MAXQ_SIGNAL_URL) {
+    env.MAXQ_SIGNAL_URL = process.env.MAXQ_SIGNAL_URL;
+  }
+  if (process.env.MAXQ_TEST_ID) {
+    env.MAXQ_TEST_ID = process.env.MAXQ_TEST_ID;
+  }
+
   logger.debug("Spawning step process", { stepPath, env });
 
   // Spawn step.sh and capture output

@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import { Logger, consoleLogger } from "./test-logger.js";
+import { TestSignalHub } from "./test-signal-hub.js";
 
 export interface TestServerOptions {
   port?: number;
@@ -9,6 +10,7 @@ export interface TestServerOptions {
   logger?: Logger;
   flowsRoot?: string;
   maxConcurrentSteps?: number; // Add support for concurrency limit
+  signalHub?: TestSignalHub; // Optional signal hub for test coordination
 }
 
 export class TestServer {
@@ -20,6 +22,7 @@ export class TestServer {
   private logger: Logger;
   private flowsRoot: string;
   private maxConcurrentSteps: number;
+  private signalHub?: TestSignalHub;
 
   constructor(options: TestServerOptions = {}) {
     this.port = options.port || 5099;
@@ -29,6 +32,7 @@ export class TestServer {
     this.logger = options.logger || consoleLogger;
     this.flowsRoot = options.flowsRoot || "./flows";
     this.maxConcurrentSteps = options.maxConcurrentSteps || 10; // Default to 10
+    this.signalHub = options.signalHub;
   }
 
   getPort(): number {
@@ -66,7 +70,7 @@ export class TestServer {
       const dbPassword = process.env.MAXQ_DB_PASSWORD || "postgres";
       const databaseUrl = `postgresql://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${this.dbName}`;
 
-      const env = {
+      const env: Record<string, string> = {
         ...process.env,
         NODE_ENV: "test",
         MAXQ_SERVER_PORT: this.port.toString(),
@@ -77,6 +81,11 @@ export class TestServer {
         MAXQ_SCHEDULER_INTERVAL_MS: "50", // Faster scheduler for tests to reduce wait times
         MAXQ_SCHEDULER_BATCH_SIZE: "100", // Process more steps per iteration in tests
       };
+
+      // Add signal URL if signal hub is provided
+      if (this.signalHub) {
+        env.MAXQ_SIGNAL_URL = `http://localhost:${this.signalHub.getPort()}`;
+      }
 
       // Start the server directly
       const serverPath = new URL(

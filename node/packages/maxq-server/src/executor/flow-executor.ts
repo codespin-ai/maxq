@@ -98,6 +98,14 @@ export async function executeFlow(
     env.MAXQ_FAILED_STAGE = failedStage;
   }
 
+  // Pass through signal URL and test ID if present (for test coordination)
+  if (process.env.MAXQ_SIGNAL_URL) {
+    env.MAXQ_SIGNAL_URL = process.env.MAXQ_SIGNAL_URL;
+  }
+  if (process.env.MAXQ_TEST_ID) {
+    env.MAXQ_TEST_ID = process.env.MAXQ_TEST_ID;
+  }
+
   logger.debug("Spawning flow process", { flowPath, env });
 
   // Spawn flow.sh and capture output
