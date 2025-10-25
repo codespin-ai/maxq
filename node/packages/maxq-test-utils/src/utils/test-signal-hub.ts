@@ -67,33 +67,35 @@ export class TestSignalHub {
     // Wait for multiple signals (AND wait) - MUST be before /signal/:testId/:signalName
     this.app.post("/signal/:testId/wait-all", (req: Request, res: Response) => {
       const { testId } = req.params;
-      const { signals: signalNames, timeout = 30000 } = req.body;
+      const {
+        signals: signalNames,
+        timeout = 30000,
+        baselines = {},
+      } = req.body;
 
       if (!testId || !Array.isArray(signalNames) || signalNames.length === 0) {
         res.status(400).json({ error: "testId and signals array required" });
         return;
       }
 
-      // Collect already-existing signals and determine which are missing
+      // Collect already-existing signals newer than baseline and determine which are missing
       const testEvents = this.events.get(testId);
       const receivedEvents: Record<string, SignalEvent> = {};
       const missingSignals: string[] = [];
 
       for (const name of signalNames) {
+        const baselineSeq = baselines[name] || 0;
         const events = testEvents?.get(name);
-        if (events && events.length > 0) {
-          const lastEvent = events[events.length - 1];
-          if (lastEvent) {
-            receivedEvents[name] = lastEvent;
-          } else {
-            missingSignals.push(name);
-          }
+        const newerEvent = events?.find((e) => e.seq > baselineSeq);
+
+        if (newerEvent) {
+          receivedEvents[name] = newerEvent;
         } else {
           missingSignals.push(name);
         }
       }
 
-      // If all signals already exist, return immediately
+      // If all signals already have newer events, return immediately
       if (missingSignals.length === 0) {
         res.status(200).json({ signaled: true, events: receivedEvents });
         return;
@@ -126,6 +128,8 @@ export class TestSignalHub {
 
       // Set up waiters for each missing signal
       for (const signalName of missingSignals) {
+        const baselineSeq = baselines[signalName] || 0;
+
         const waiter: PendingWaiter = {
           signal: signalName,
           resolve: (event) => {
@@ -136,7 +140,7 @@ export class TestSignalHub {
             }
           },
           timeoutHandle,
-          baselineSeq: 0,
+          baselineSeq,
         };
 
         if (!this.waiters.has(testId)) {
@@ -406,18 +410,21 @@ export class TestSignalHub {
 
   /**
    * TypeScript helper: wait for multiple signals (AND wait)
+   * Accepts optional baselines map to wait for events newer than specific sequences
    */
   async waitForAll(
     testId: string,
     signalNames: string[],
-    timeout: number = 30000,
+    options: { timeout?: number; baselines?: Record<string, number> } = {},
   ): Promise<Record<string, SignalEvent>> {
+    const { timeout = 30000, baselines = {} } = options;
+
     const response = await fetch(
       `http://localhost:${this.port}/signal/${testId}/wait-all`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signals: signalNames, timeout }),
+        body: JSON.stringify({ signals: signalNames, timeout, baselines }),
       },
     );
 
@@ -464,8 +471,10 @@ export class TestSignalHub {
         signalName: string,
         options?: { timeout?: number; baselineSeq?: number },
       ) => this.waitForSignal(testId, signalName, options),
-      waitAll: (signalNames: string[], timeout?: number) =>
-        this.waitForAll(testId, signalNames, timeout),
+      waitAll: (
+        signalNames: string[],
+        options?: { timeout?: number; baselines?: Record<string, number> },
+      ) => this.waitForAll(testId, signalNames, options),
       clear: () => this.clearTest(testId),
     };
   }
