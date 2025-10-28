@@ -7,7 +7,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect, executeUpdate } from "@webpods/tinqer-sql-pg-promise";
+import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
 import type { DataContext } from "../data-context.js";
 import type { Run } from "../../types.js";
 import { mapRunFromDb } from "../../mappers.js";

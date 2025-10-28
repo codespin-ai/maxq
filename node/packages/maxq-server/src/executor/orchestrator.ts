@@ -7,8 +7,8 @@ import { createLogger } from "@codespin/maxq-logger";
 import type { ExecutorConfig } from "./types.js";
 import { executeFlowInitial } from "./flow-executor.js";
 import type { IDatabase } from "pg-promise";
-import { createSchema } from "@webpods/tinqer";
-import { executeUpdate, executeSelect } from "@webpods/tinqer-sql-pg-promise";
+import { createSchema } from "@tinqerjs/tinqer";
+import { executeUpdate, executeSelect } from "@tinqerjs/pg-promise-adapter";
 import type { DatabaseSchema } from "@codespin/maxq-db";
 import type { StepProcessRegistry } from "./process-registry.js";
 

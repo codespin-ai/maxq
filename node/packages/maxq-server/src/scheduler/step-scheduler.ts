@@ -4,8 +4,8 @@
  */
 
 import { createLogger } from "@codespin/maxq-logger";
-import { createSchema } from "@webpods/tinqer";
-import { executeSelect, executeUpdate } from "@webpods/tinqer-sql-pg-promise";
+import { createSchema } from "@tinqerjs/tinqer";
+import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
 import type { DatabaseSchema } from "@codespin/maxq-db";
 import type { DataContext } from "../domain/data-context.js";
 import { executeStep } from "../executor/step-executor.js";

@@ -6,9 +6,9 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { Logger, consoleLogger } from "./test-logger.js";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect } from "@webpods/tinqer-sql-pg-promise";
+import { executeSelect } from "@tinqerjs/pg-promise-adapter";
 import type { DatabaseSchema } from "@codespin/maxq-db";
-import type { QueryBuilder } from "@webpods/tinqer";
+import type { QueryBuilder } from "@tinqerjs/tinqer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

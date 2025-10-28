@@ -6,7 +6,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect, executeUpdate } from "@webpods/tinqer-sql-pg-promise";
+import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
 import type { IDatabase } from "pg-promise";
 import type { DataContext } from "../data-context.js";
 import type { Step } from "../../types.js";
