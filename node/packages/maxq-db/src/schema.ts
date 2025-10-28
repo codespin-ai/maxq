@@ -2,7 +2,7 @@
  * Database schema definition using Tinqer
  */
 
-import { createSchema } from "@webpods/tinqer";
+import { createSchema } from "@tinqerjs/tinqer";
 import type { DatabaseSchema } from "./types.js";
 
 // Export schema instance for use in domain functions
