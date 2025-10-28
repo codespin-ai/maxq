@@ -6,7 +6,7 @@
 import { spawn } from "child_process";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect, executeUpdate } from "@webpods/tinqer-sql-pg-promise";
+import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
 import type { IDatabase } from "pg-promise";
 
 const logger = createLogger("maxq:startup:cleanup");

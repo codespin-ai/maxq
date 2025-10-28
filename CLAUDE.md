@@ -282,8 +282,8 @@ When the user asks you to commit and push:
 Use Tinqer for type-safe database queries:
 
 ```typescript
-import { createSchema } from "@webpods/tinqer";
-import { executeSelect, executeInsert } from "@webpods/tinqer-sql-pg-promise";
+import { createSchema } from "@tinqerjs/tinqer";
+import { executeSelect, executeInsert } from "@tinqerjs/pg-promise-adapter";
 
 const schema = createSchema<DatabaseSchema>();
 
@@ -327,12 +327,12 @@ export interface RunRepository {
 
 // PostgreSQL implementation using Tinqer
 export function createPostgresRunRepository(db: IDatabase<any>): RunRepository {
-  // Implementation using @webpods/tinqer-sql-pg-promise
+  // Implementation using @tinqerjs/pg-promise-adapter
 }
 
 // SQLite implementation using Tinqer
 export function createSqliteRunRepository(db: Database): RunRepository {
-  // Implementation using @webpods/tinqer-sql-better-sqlite3
+  // Implementation using @tinqerjs/tinqer-sql-better-sqlite3
 }
 ```
 

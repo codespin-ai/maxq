@@ -130,7 +130,7 @@ export function scheduleStageHandler(ctx: DataContext) {
           // Check if stage already exists (for retry scenario)
           // Query for existing stage with this run_id and name
           const { executeSelect } = await import(
-            "@webpods/tinqer-sql-pg-promise"
+            "@tinqerjs/pg-promise-adapter"
           );
           const { schema } = await import("@codespin/maxq-db");
 
@@ -156,7 +156,7 @@ export function scheduleStageHandler(ctx: DataContext) {
             });
 
             const { executeUpdate } = await import(
-              "@webpods/tinqer-sql-pg-promise"
+              "@tinqerjs/pg-promise-adapter"
             );
             const { mapStageFromDb } = await import("../../mappers.js");
 
@@ -235,7 +235,7 @@ export function scheduleStageHandler(ctx: DataContext) {
               });
 
               const { executeUpdate } = await import(
-                "@webpods/tinqer-sql-pg-promise"
+                "@tinqerjs/pg-promise-adapter"
               );
               const { mapStepFromDb } = await import("../../mappers.js");
 
@@ -334,7 +334,7 @@ export function scheduleStageHandler(ctx: DataContext) {
       // Enqueue all steps for scheduler to pick up
       // Set queued_at timestamp so scheduler knows they're ready
       const now = Date.now();
-      const { executeUpdate } = await import("@webpods/tinqer-sql-pg-promise");
+      const { executeUpdate } = await import("@tinqerjs/pg-promise-adapter");
       const { schema } = await import("@codespin/maxq-db");
 
       for (const step of createdSteps) {
