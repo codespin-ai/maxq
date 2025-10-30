@@ -211,7 +211,9 @@ const schema = createSchema<Schema>();
 describe("PostgreSQL Integration", () => {
   beforeEach(async () => {
     await db.none("TRUNCATE TABLE users RESTART IDENTITY CASCADE");
-    await db.none("INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25)");
+    await db.none(
+      "INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25)",
+    );
   });
 
   it("should execute SELECT query", async () => {

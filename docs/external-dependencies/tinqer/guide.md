@@ -80,7 +80,13 @@ import { createSchema, defineSelect } from "@tinqerjs/tinqer";
 import { toSql } from "@tinqerjs/pg-promise-adapter";
 
 interface Schema {
-  users: { id: number; name: string; age: number; email: string; active: boolean };
+  users: {
+    id: number;
+    name: string;
+    age: number;
+    email: string;
+    active: boolean;
+  };
 }
 
 const schema = createSchema<Schema>();
@@ -141,7 +147,11 @@ WHERE "age" >= @__p1 AND "age" <= @__p2 AND "active" = @__p3
 ```typescript
 const premium = toSql(
   defineSelect(schema, (q) =>
-    q.from("users").where((u) => (u.salary * 0.9 > 150_000 && u.age < 55) || u.active === false),
+    q
+      .from("users")
+      .where(
+        (u) => (u.salary * 0.9 > 150_000 && u.age < 55) || u.active === false,
+      ),
   ),
   {},
 );
@@ -167,7 +177,9 @@ WHERE ((("salary" * @__p1) > @__p2 AND "age" < @__p3) OR "active" = @__p4)
 
 ```typescript
 const preferredName = toSql(
-  defineSelect(schema, (q) => q.from("users").where((u) => (u.nickname ?? u.name) === "anonymous")),
+  defineSelect(schema, (q) =>
+    q.from("users").where((u) => (u.nickname ?? u.name) === "anonymous"),
+  ),
   {},
 );
 ```
@@ -251,7 +263,9 @@ SELECT * FROM "users" WHERE LOWER("name") = LOWER(@__p1)
 ```typescript
 const allowed = toSql(
   defineSelect(schema, (q) =>
-    q.from("users").where((u) => ["admin", "support", "auditor"].includes(u.role)),
+    q
+      .from("users")
+      .where((u) => ["admin", "support", "auditor"].includes(u.role)),
   ),
   {},
 );
@@ -277,12 +291,14 @@ Negating the predicate (`!array.includes(...)`) yields `NOT IN`.
 
 ```typescript
 const advancedFilter = toSql(
-  defineSelect(schema, (q, params: { minAge: number; categories: string[] }, helpers) =>
-    q
-      .from("users")
-      .where((u) => u.age >= params.minAge)
-      .where((u) => params.categories.includes(u.departmentId.toString()))
-      .where((u) => helpers.functions.icontains(u.email, "company")),
+  defineSelect(
+    schema,
+    (q, params: { minAge: number; categories: string[] }, helpers) =>
+      q
+        .from("users")
+        .where((u) => u.age >= params.minAge)
+        .where((u) => params.categories.includes(u.departmentId.toString()))
+        .where((u) => helpers.functions.icontains(u.email, "company")),
   ),
   { minAge: 25, categories: ["10", "11"] },
 );
@@ -373,7 +389,12 @@ SELECT "id" AS "id", "name" AS "name", "email" AS "contact.email" FROM "users" W
 
 ```typescript
 interface ProductSchema {
-  products: { id: number; name: string; price: number; discount: number | null };
+  products: {
+    id: number;
+    name: string;
+    price: number;
+    discount: number | null;
+  };
 }
 const schema = createSchema<ProductSchema>();
 
@@ -917,7 +938,12 @@ FROM "orders"
 
 ```typescript
 interface RegionEmployeeSchema {
-  employees: { name: string; region: string; department: string; salary: number };
+  employees: {
+    name: string;
+    region: string;
+    department: string;
+    salary: number;
+  };
 }
 const schema = createSchema<RegionEmployeeSchema>();
 
@@ -1308,7 +1334,12 @@ Combine window function filters with regular WHERE conditions:
 
 ```typescript
 interface ActiveEmployeeSchema {
-  employees: { name: string; department: string; salary: number; is_active: boolean };
+  employees: {
+    name: string;
+    department: string;
+    salary: number;
+    is_active: boolean;
+  };
 }
 const schema = createSchema<ActiveEmployeeSchema>();
 
@@ -1546,7 +1577,9 @@ Nested properties and array indices are preserved (`params.filters.departments[0
 ```typescript
 const autoParams = toSql(
   defineSelect(schema, (q) =>
-    q.from("users").where((u) => u.departmentId === 7 && u.name.startsWith("A")),
+    q
+      .from("users")
+      .where((u) => u.departmentId === 7 && u.name.startsWith("A")),
   ),
   {},
 );
@@ -1570,7 +1603,9 @@ SELECT * FROM "users" WHERE "departmentId" = @__p1 AND "name" LIKE @__p2 || '%'
 
 ```typescript
 const membership = toSql(
-  defineSelect(schema, (q) => q.from("users").where((u) => [1, 2, 3].includes(u.id))),
+  defineSelect(schema, (q) =>
+    q.from("users").where((u) => [1, 2, 3].includes(u.id)),
+  ),
   {},
 );
 ```
@@ -1609,7 +1644,9 @@ const dynamicMembership = toSql(
 ```typescript
 const ic = toSql(
   defineSelect(schema, (q, params, helpers) =>
-    q.from("users").where((u) => helpers.functions.icontains(u.email, "support")),
+    q
+      .from("users")
+      .where((u) => helpers.functions.icontains(u.email, "support")),
   ),
   {},
 );
@@ -1883,7 +1920,12 @@ const del = toSql(
   defineDelete(schema, (q) =>
     q
       .deleteFrom("users")
-      .where((u) => u.isDeleted === true || (u.age < 18 && u.role !== "admin") || u.email === null),
+      .where(
+        (u) =>
+          u.isDeleted === true ||
+          (u.age < 18 && u.role !== "admin") ||
+          u.email === null,
+      ),
   ),
   {},
 );
@@ -2013,7 +2055,11 @@ The adapter packages provide execution functions for all CRUD operations:
 
 ```typescript
 import { createSchema } from "@tinqerjs/tinqer";
-import { executeInsert, executeUpdate, executeDelete } from "@tinqerjs/pg-promise-adapter";
+import {
+  executeInsert,
+  executeUpdate,
+  executeDelete,
+} from "@tinqerjs/pg-promise-adapter";
 
 const schema = createSchema<Schema>();
 
@@ -2056,7 +2102,11 @@ const deleteCount = await executeDelete(
 
 ```typescript
 import { createSchema } from "@tinqerjs/tinqer";
-import { executeInsert, executeUpdate, executeDelete } from "@tinqerjs/better-sqlite3-adapter";
+import {
+  executeInsert,
+  executeUpdate,
+  executeDelete,
+} from "@tinqerjs/better-sqlite3-adapter";
 
 const schema = createSchema<Schema>();
 
@@ -2130,7 +2180,12 @@ await db.tx(async (t) => {
 
 // SQLite transactions
 const transaction = sqliteDb.transaction(() => {
-  executeInsert(db, schema, (q) => q.insertInto("users").values({ name: "Jack" }), {});
+  executeInsert(
+    db,
+    schema,
+    (q) => q.insertInto("users").values({ name: "Jack" }),
+    {},
+  );
   executeUpdate(
     db,
     schema,
@@ -2396,7 +2451,9 @@ function paginate<TPlan extends { skip: Function; take: Function }>(
   return plan.skip((page - 1) * pageSize).take(pageSize) as TPlan;
 }
 
-const allArticles = defineSelect(schema, (q) => q.from("articles").orderBy((a) => a.createdAt));
+const allArticles = defineSelect(schema, (q) =>
+  q.from("articles").orderBy((a) => a.createdAt),
+);
 
 // Page 1
 const page1 = paginate(allArticles, 1, 20);

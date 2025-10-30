@@ -49,10 +49,9 @@ app.use((req, _res, next) => {
 });
 
 // Initialize database connection
-const databaseUrl =
-  process.env.MAXQ_DATABASE_URL ||
-  "postgresql://postgres:postgres@localhost:5432/maxq";
-const db = createConnection(databaseUrl);
+const sqlitePath = process.env.MAXQ_SQLITE_PATH || "./data/maxq.db";
+logger.info("Connecting to SQLite database", { path: sqlitePath });
+const db = createConnection(sqlitePath);
 
 // Initialize executor config
 const executorConfig: ExecutorConfig = {
@@ -93,7 +92,7 @@ app.get("/health", async (_req, res) => {
 
   // Check database connection
   try {
-    await db.one("SELECT 1 as ok");
+    db.prepare("SELECT 1 as ok").get();
     services.database = "connected";
   } catch (error) {
     services.database = "disconnected";

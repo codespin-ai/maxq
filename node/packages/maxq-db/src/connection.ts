@@ -1,35 +1,32 @@
 /**
- * Database connection management
+ * Database connection management for SQLite
  */
 
-import pgPromise from "pg-promise";
-import type { IDatabase } from "pg-promise";
+import Database from "better-sqlite3";
 
-const pgp = pgPromise();
+export type { Database } from "better-sqlite3";
 
-// Parse bigint as number instead of string
-pgp.pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
-
-export type Database = IDatabase<unknown>;
-
-let connectionPool: IDatabase<unknown> | null = null;
+let db: Database.Database | null = null;
 
 /**
- * Create a database connection
+ * Create a SQLite database connection
+ * @param path - Path to SQLite database file (or ':memory:' for in-memory database)
  */
-export function createConnection(connectionString: string): Database {
-  if (!connectionPool) {
-    connectionPool = pgp(connectionString);
+export function createConnection(path: string): Database.Database {
+  if (!db) {
+    db = new Database(path);
+    // Enable foreign keys (not enabled by default in SQLite)
+    db.pragma("foreign_keys = ON");
   }
-  return connectionPool;
+  return db;
 }
 
 /**
  * Close the database connection
  */
-export async function closeConnection(): Promise<void> {
-  if (connectionPool) {
-    await connectionPool.$pool.end();
-    connectionPool = null;
+export function closeConnection(): void {
+  if (db) {
+    db.close();
+    db = null;
   }
 }

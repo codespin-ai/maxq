@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { createLogger } from "@codespin/maxq-logger";
-import type { IDatabase } from "pg-promise";
 import type { DataContext } from "../../domain/data-context.js";
+import type { Step } from "../../types.js";
 import { createStage } from "../../domain/stage/create-stage.js";
 import { createStep } from "../../domain/step/create-step.js";
 
@@ -121,20 +121,22 @@ export function scheduleStageHandler(ctx: DataContext) {
       // Create stage and steps in a transaction to ensure atomicity
       // If any part fails, the entire operation rolls back
       let stageId: string;
-      let createdSteps;
+      let createdSteps: Step[];
       try {
-        const transactionResult = await ctx.db.tx(async (t) => {
-          // Create transaction context with IDatabase-compatible interface
-          const txCtx = { ...ctx, db: t as unknown as IDatabase<unknown> };
+        // SQLite transaction using manual BEGIN/COMMIT
+        ctx.db.prepare("BEGIN").run();
+        try {
+          // Transaction context uses the same database connection
+          const txCtx = { ...ctx };
 
           // Check if stage already exists (for retry scenario)
           // Query for existing stage with this run_id and name
           const { executeSelect } = await import(
-            "@tinqerjs/pg-promise-adapter"
+            "@tinqerjs/better-sqlite3-adapter"
           );
           const { schema } = await import("@codespin/maxq-db");
 
-          const existingStages = await executeSelect(
+          const existingStages = executeSelect(
             txCtx.db,
             schema,
             (q, p) =>
@@ -156,7 +158,7 @@ export function scheduleStageHandler(ctx: DataContext) {
             });
 
             const { executeUpdate } = await import(
-              "@tinqerjs/pg-promise-adapter"
+              "@tinqerjs/better-sqlite3-adapter"
             );
             const { mapStageFromDb } = await import("../../mappers.js");
 
@@ -176,7 +178,7 @@ export function scheduleStageHandler(ctx: DataContext) {
                   .where((s) => s.id === p.stageId),
               {
                 stageId: existingStage.id,
-                final: input.final,
+                final: input.final ? 1 : 0, // Convert boolean to SQLite INTEGER
               },
             );
 
@@ -206,10 +208,10 @@ export function scheduleStageHandler(ctx: DataContext) {
             stage = stageResult.data;
           }
 
-          const stageId = stage.id;
+          stageId = stage.id;
 
           // Create/reuse step records for all steps
-          const createdSteps = [];
+          createdSteps = [];
           for (const stepDef of input.steps) {
             // Check if step already exists (for retry scenario)
             const existingSteps = await executeSelect(
@@ -235,7 +237,7 @@ export function scheduleStageHandler(ctx: DataContext) {
               });
 
               const { executeUpdate } = await import(
-                "@tinqerjs/pg-promise-adapter"
+                "@tinqerjs/better-sqlite3-adapter"
               );
               const { mapStepFromDb } = await import("../../mappers.js");
 
@@ -306,11 +308,13 @@ export function scheduleStageHandler(ctx: DataContext) {
             createdSteps.push(step);
           }
 
-          return { stageId, createdSteps };
-        });
-
-        stageId = transactionResult.stageId;
-        createdSteps = transactionResult.createdSteps;
+          // Commit transaction
+          ctx.db.prepare("COMMIT").run();
+        } catch (innerError) {
+          // Rollback on error
+          ctx.db.prepare("ROLLBACK").run();
+          throw innerError;
+        }
       } catch (error) {
         logger.error("Transaction failed, rolled back", {
           runId,
@@ -334,7 +338,9 @@ export function scheduleStageHandler(ctx: DataContext) {
       // Enqueue all steps for scheduler to pick up
       // Set queued_at timestamp so scheduler knows they're ready
       const now = Date.now();
-      const { executeUpdate } = await import("@tinqerjs/pg-promise-adapter");
+      const { executeUpdate } = await import(
+        "@tinqerjs/better-sqlite3-adapter"
+      );
       const { schema } = await import("@codespin/maxq-db");
 
       for (const step of createdSteps) {

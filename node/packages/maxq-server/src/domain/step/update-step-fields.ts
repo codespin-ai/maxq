@@ -2,7 +2,7 @@ import { Result, failure, success } from "@codespin/maxq-core";
 import type { DataContext } from "../data-context.js";
 import type { Step } from "../../types.js";
 import { schema } from "@codespin/maxq-db";
-import { executeUpdate as executeUpdatePg } from "@tinqerjs/pg-promise-adapter";
+import { executeUpdate, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import { mapStepFromDb } from "../../mappers.js";
 
 /**
@@ -21,7 +21,8 @@ export async function updateStepFields(
 
     // Update step with fields only - DO NOT touch status
     // Status is determined solely by exit code via the executor
-    const rows = await executeUpdatePg(
+    // SQLite executeUpdate returns row count, not data
+    const rowCount = executeUpdate(
       ctx.db,
       schema,
       (q, p) =>
@@ -31,20 +32,35 @@ export async function updateStepFields(
             fields: p.fields,
             completed_at: p.completedAt,
           })
-          .where((s) => s.run_id === p.runId && s.id === p.stepId)
-          .returning((s) => s),
+          .where((s) => s.run_id === p.runId && s.id === p.stepId),
       {
-        fields: JSON.stringify(fields), // Must stringify for JSONB column
+        fields: JSON.stringify(fields), // JSON stored as TEXT in SQLite
         completedAt: now,
         runId,
         stepId,
       },
     );
 
+    if (rowCount === 0) {
+      return failure(
+        new Error(`Step not found: runId=${runId}, stepId=${stepId}`),
+      );
+    }
+
+    // Follow-up SELECT to get the updated row
+    const rows = executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("step").where((s) => s.id === p.stepId),
+      { stepId },
+    );
+
     const row = rows[0];
     if (!row) {
       return failure(
-        new Error(`Step not found: runId=${runId}, stepId=${stepId}`),
+        new Error(
+          `Step not found after update: runId=${runId}, stepId=${stepId}`,
+        ),
       );
     }
 

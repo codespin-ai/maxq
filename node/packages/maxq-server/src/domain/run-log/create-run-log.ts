@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeInsert } from "@tinqerjs/pg-promise-adapter";
+import { executeInsert, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../data-context.js";
 import type { RunLog, CreateRunLogInput } from "../../types.js";
 import { mapRunLogFromDb } from "../../mappers.js";
@@ -24,23 +24,21 @@ export async function createRunLog(
     const id = uuidv4();
     const now = Date.now();
 
-    const rows = await executeInsert(
+    // SQLite executeInsert returns row count, not data
+    const rowCount = executeInsert(
       ctx.db,
       schema,
       (q, p) =>
-        q
-          .insertInto("run_log")
-          .values({
-            id: p.id,
-            run_id: p.runId,
-            entity_type: p.entityType,
-            entity_id: p.entityId,
-            level: p.level,
-            message: p.message,
-            metadata: p.metadata,
-            created_at: p.createdAt,
-          })
-          .returning((r) => r),
+        q.insertInto("run_log").values({
+          id: p.id,
+          run_id: p.runId,
+          entity_type: p.entityType,
+          entity_id: p.entityId,
+          level: p.level,
+          message: p.message,
+          metadata: p.metadata,
+          created_at: p.createdAt,
+        }),
       {
         id,
         runId: input.runId,
@@ -48,14 +46,26 @@ export async function createRunLog(
         entityId: input.entityId || null,
         level: input.level,
         message: input.message,
-        metadata: input.metadata || null,
+        metadata: input.metadata ? JSON.stringify(input.metadata) : null, // JSON stored as TEXT
         createdAt: now,
       },
     );
 
+    if (rowCount === 0) {
+      return failure(new Error("Failed to create run log"));
+    }
+
+    // Follow-up SELECT to get the inserted row
+    const rows = executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("run_log").where((r) => r.id === p.id),
+      { id },
+    );
+
     const row = rows[0];
     if (!row) {
-      return failure(new Error("Failed to create run log"));
+      return failure(new Error("Failed to retrieve created run log"));
     }
 
     logger.debug("Created run log", {

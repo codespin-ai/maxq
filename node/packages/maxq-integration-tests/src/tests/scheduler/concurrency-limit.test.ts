@@ -23,15 +23,13 @@ describe("Scheduler Concurrency Limit", () => {
   beforeEach(async function () {
     this.timeout(10000);
 
-    // Create test database with a unique name for this test
-    testDb = new TestDatabase({
-      dbName: "maxq_concurrency_test",
-    });
+    // Create test database for this test
+    testDb = new TestDatabase({});
     await testDb.setup();
 
     // Create test server with LOW concurrency limit
     testServer = new TestServer({
-      dbName: "maxq_concurrency_test",
+      dbPath: testDb.getDbPath(), // Use the same database file as testDb
       flowsRoot: "/tmp/flows",
       port: 0, // Random port
       maxConcurrentSteps: 2, // CRITICAL: Only allow 2 concurrent steps
@@ -131,16 +129,21 @@ exit 0
     // Poll every 100ms to track concurrent running steps
     const pollInterval = setInterval(async () => {
       try {
-        const runningSteps = await testDb.getPgDb().any(
-          `
+        const runningSteps = testDb
+          .getDb()
+          .prepare(
+            `
           SELECT COUNT(*) as count
           FROM step
-          WHERE run_id = $1 AND status = 'running'
+          WHERE run_id = :runId AND status = 'running'
         `,
-          [runId],
-        );
+          )
+          .all({ runId });
 
-        const currentRunning = parseInt(runningSteps[0].count, 10);
+        const currentRunning = parseInt(
+          (runningSteps[0] as { count: number }).count.toString(),
+          10,
+        );
         maxRunningAtOnce = Math.max(maxRunningAtOnce, currentRunning);
 
         pollCount++;
@@ -151,16 +154,21 @@ exit 0
         );
 
         // Check if all steps are complete
-        const completedSteps = await testDb.getPgDb().any(
-          `
+        const completedSteps = testDb
+          .getDb()
+          .prepare(
+            `
           SELECT COUNT(*) as count
           FROM step
-          WHERE run_id = $1 AND status IN ('completed', 'failed')
+          WHERE run_id = :runId AND status IN ('completed', 'failed')
         `,
-          [runId],
-        );
+          )
+          .all({ runId });
 
-        const completedCount = parseInt(completedSteps[0].count, 10);
+        const completedCount = parseInt(
+          (completedSteps[0] as { count: number }).count.toString(),
+          10,
+        );
 
         if (completedCount === 5 || pollCount >= maxPolls) {
           clearInterval(pollInterval);
@@ -193,18 +201,27 @@ exit 0
     clearInterval(pollInterval);
 
     // Verify all 5 steps completed
-    const allSteps = await testDb.getPgDb().any(
-      `
+    const allSteps = testDb
+      .getDb()
+      .prepare(
+        `
       SELECT id, name, status, started_at, completed_at
       FROM step
-      WHERE run_id = $1
+      WHERE run_id = :runId
       ORDER BY started_at
     `,
-      [runId],
-    );
+      )
+      .all({ runId }) as Array<{
+      id: string;
+      name: string;
+      status: string;
+      started_at: string;
+      completed_at: string;
+    }>;
 
     expect(allSteps).to.have.lengthOf(5);
-    expect(allSteps.every((s) => s.status === "completed")).to.be.true;
+    expect(allSteps.every((s: { status: string }) => s.status === "completed"))
+      .to.be.true;
 
     // CRITICAL ASSERTION: Never more than 2 steps running at once
     expect(maxRunningAtOnce).to.be.at.most(
@@ -218,7 +235,7 @@ exit 0
     // Check timing to verify steps ran in batches
     // With 5 steps and max 2 concurrent, we expect at least 3 batches
     // Each step takes 1 second, so total time should be at least 3 seconds
-    const firstStart = parseInt(allSteps[0].started_at, 10);
+    const firstStart = parseInt(allSteps[0]!.started_at, 10);
     const lastComplete = Math.max(
       ...allSteps.map((s) => parseInt(s.completed_at, 10)),
     );
@@ -314,14 +331,19 @@ exit 0
     let maxConcurrent = 0;
     const checkInterval = setInterval(async () => {
       try {
-        const result = await testDb.getPgDb().any(
-          `
+        const result = testDb
+          .getDb()
+          .prepare(
+            `
           SELECT COUNT(*) as count FROM step
-          WHERE run_id = $1 AND status = 'running'
+          WHERE run_id = :runId AND status = 'running'
         `,
-          [runId],
+          )
+          .all({ runId });
+        const current = parseInt(
+          (result[0] as { count: number }).count.toString(),
+          10,
         );
-        const current = parseInt(result[0].count, 10);
         maxConcurrent = Math.max(maxConcurrent, current);
       } catch {
         // Ignore errors during polling
@@ -348,14 +370,17 @@ exit 0
     );
 
     // Verify all steps completed
-    const steps = await testDb.getPgDb().any(
-      `
-      SELECT id, status FROM step WHERE run_id = $1
+    const steps = testDb
+      .getDb()
+      .prepare(
+        `
+      SELECT id, status FROM step WHERE run_id = :runId
     `,
-      [runId],
-    );
+      )
+      .all({ runId }) as Array<{ id: string; status: string }>;
 
     expect(steps).to.have.lengthOf(5);
-    expect(steps.every((s) => s.status === "completed")).to.be.true;
+    expect(steps.every((s: { status: string }) => s.status === "completed")).to
+      .be.true;
   });
 });

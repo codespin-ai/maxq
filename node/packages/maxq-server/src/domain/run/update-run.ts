@@ -1,7 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeUpdate, executeSelect } from "@tinqerjs/pg-promise-adapter";
+import { executeUpdate, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../data-context.js";
 import type { Run, UpdateRunInput } from "../../types.js";
 import { mapRunFromDb } from "../../mappers.js";
@@ -52,7 +52,8 @@ export async function updateRun(
             : existing.duration_ms;
 
     // Update with object literal - all values passed via params
-    const rows = await executeUpdate(
+    // SQLite executeUpdate returns row count, not data
+    const rowCount = executeUpdate(
       ctx.db,
       schema,
       (q, p) =>
@@ -70,13 +71,12 @@ export async function updateRun(
             name: p.name,
             description: p.description,
           })
-          .where((r) => r.id === p.id)
-          .returning((r) => r),
+          .where((r) => r.id === p.id),
       {
         id,
         status: input.status ?? existing.status,
-        output: input.output ?? existing.output,
-        error: input.error ?? existing.error,
+        output: input.output ? JSON.stringify(input.output) : existing.output,
+        error: input.error ? JSON.stringify(input.error) : existing.error,
         startedAt: finalStartedAt,
         completedAt: finalCompletedAt,
         durationMs: finalDurationMs,
@@ -87,7 +87,19 @@ export async function updateRun(
       },
     );
 
-    const row = rows[0];
+    if (rowCount === 0) {
+      return failure(new Error("Run not found"));
+    }
+
+    // Follow-up SELECT to get the updated row
+    const updatedRows = executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("run").where((r) => r.id === p.id),
+      { id },
+    );
+
+    const row = updatedRows[0];
     if (!row) {
       return failure(new Error("Run not found after update"));
     }

@@ -16,10 +16,10 @@ export function mapRunFromDb(row: RunDbRow): Run {
     id: row.id,
     flowName: row.flow_name,
     status: row.status,
-    input: row.input ?? undefined,
-    output: row.output ?? undefined,
-    error: row.error ?? undefined,
-    metadata: row.metadata ?? undefined,
+    input: row.input ? JSON.parse(row.input as string) : undefined,
+    output: row.output ? JSON.parse(row.output as string) : undefined,
+    error: row.error ? JSON.parse(row.error as string) : undefined,
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
@@ -59,12 +59,13 @@ export function mapRunToDb(run: Partial<Run>): Partial<RunDbRow> {
 }
 
 // Stage mappers
+// Note: SQLite stores booleans as INTEGER (0/1), so we convert between number and boolean
 export function mapStageFromDb(row: StageDbRow): Stage {
   return {
     id: row.id,
     runId: row.run_id,
     name: row.name,
-    final: row.final,
+    final: row.final === 1, // Convert SQLite INTEGER to boolean
     status: row.status,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
@@ -79,7 +80,7 @@ export function mapStageToDb(stage: Partial<Stage>): Partial<StageDbRow> {
   if (stage.id !== undefined) dbRow.id = stage.id;
   if (stage.runId !== undefined) dbRow.run_id = stage.runId;
   if (stage.name !== undefined) dbRow.name = stage.name;
-  if (stage.final !== undefined) dbRow.final = stage.final;
+  if (stage.final !== undefined) dbRow.final = stage.final ? 1 : 0; // Convert boolean to SQLite INTEGER
   if (stage.status !== undefined) dbRow.status = stage.status;
   if (stage.createdAt !== undefined) dbRow.created_at = stage.createdAt;
   if (stage.startedAt !== undefined) dbRow.started_at = stage.startedAt;
@@ -98,11 +99,11 @@ export function mapStepFromDb(row: StepDbRow): Step {
     stageId: row.stage_id,
     name: row.name,
     status: row.status,
-    dependsOn: (row.depends_on as string[]) || [],
+    dependsOn: row.depends_on ? JSON.parse(row.depends_on as string) : [],
     retryCount: row.retry_count,
     maxRetries: row.max_retries,
-    env: row.env as Record<string, string> | undefined,
-    fields: row.fields as Record<string, unknown> | undefined,
+    env: row.env ? JSON.parse(row.env as string) : undefined,
+    fields: row.fields ? JSON.parse(row.fields as string) : undefined,
     error: row.error ?? undefined,
     createdAt: row.created_at,
     startedAt: row.started_at ?? undefined,
@@ -157,7 +158,7 @@ export function mapRunLogFromDb(row: RunLogDbRow): RunLog {
     entityId: row.entity_id ?? undefined,
     level: row.level,
     message: row.message,
-    metadata: row.metadata ?? undefined,
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
     createdAt: row.created_at,
   };
 }

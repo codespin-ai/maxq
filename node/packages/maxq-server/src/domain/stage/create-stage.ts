@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeInsert } from "@tinqerjs/pg-promise-adapter";
+import { executeInsert, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../data-context.js";
 import type { Stage, CreateStageInput } from "../../types.js";
 import { mapStageFromDb } from "../../mappers.js";
@@ -24,33 +24,43 @@ export async function createStage(
     const id = uuidv4();
     const now = Date.now();
 
-    const rows = await executeInsert(
+    // SQLite executeInsert returns row count, not data
+    const rowCount = executeInsert(
       ctx.db,
       schema,
       (q, p) =>
-        q
-          .insertInto("stage")
-          .values({
-            id: p.id,
-            run_id: p.runId,
-            name: p.name,
-            final: p.final,
-            status: "pending",
-            created_at: p.createdAt,
-          })
-          .returning((r) => r),
+        q.insertInto("stage").values({
+          id: p.id,
+          run_id: p.runId,
+          name: p.name,
+          final: p.final,
+          status: "pending",
+          created_at: p.createdAt,
+        }),
       {
         id,
         runId: input.runId,
         name: input.name,
-        final: input.final,
+        final: input.final ? 1 : 0, // Convert boolean to SQLite INTEGER
         createdAt: now,
       },
     );
 
+    if (rowCount === 0) {
+      return failure(new Error("Failed to create stage"));
+    }
+
+    // Follow-up SELECT to get the inserted row
+    const rows = executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("stage").where((s) => s.id === p.id),
+      { id },
+    );
+
     const row = rows[0];
     if (!row) {
-      return failure(new Error("Failed to create stage"));
+      return failure(new Error("Failed to retrieve created stage"));
     }
 
     logger.info("Created stage", { id, runId: input.runId, name: input.name });

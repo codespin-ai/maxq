@@ -340,7 +340,23 @@ describe("Runs API", () => {
       });
       const runId = createResponse.data.id;
 
-      // Update to running status
+      // Wait for orchestrator to finish (test flow completes immediately)
+      await testDb.waitForQuery(
+        (q, p) =>
+          q
+            .from("run")
+            .where(
+              (r) =>
+                r.id === p.runId &&
+                (r.status === "completed" || r.status === "failed"),
+            )
+            .select((r) => ({ id: r.id })),
+        { runId },
+        { timeout: 5000 },
+      );
+
+      // For this test, we'll update status back to "running" manually to test abort
+      // In real scenarios, a run would be running with active processes
       await client.patch<Run>(`/api/v1/runs/${runId}`, {
         status: "running",
       });
@@ -400,6 +416,21 @@ describe("Runs API", () => {
       });
       const runId = createResponse.data.id;
 
+      // Wait for orchestrator to finish
+      await testDb.waitForQuery(
+        (q, p) =>
+          q
+            .from("run")
+            .where(
+              (r) =>
+                r.id === p.runId &&
+                (r.status === "completed" || r.status === "failed"),
+            )
+            .select((r) => ({ id: r.id })),
+        { runId },
+        { timeout: 5000 },
+      );
+
       await client.patch<Run>(`/api/v1/runs/${runId}`, {
         status: "running",
       });
@@ -428,6 +459,21 @@ describe("Runs API", () => {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
+
+      // Wait for orchestrator to finish
+      await testDb.waitForQuery(
+        (q, p) =>
+          q
+            .from("run")
+            .where(
+              (r) =>
+                r.id === p.runId &&
+                (r.status === "completed" || r.status === "failed"),
+            )
+            .select((r) => ({ id: r.id })),
+        { runId },
+        { timeout: 5000 },
+      );
 
       await client.patch<Run>(`/api/v1/runs/${runId}`, {
         status: "failed",
@@ -462,6 +508,21 @@ describe("Runs API", () => {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
+
+      // Wait for orchestrator to finish
+      await testDb.waitForQuery(
+        (q, p) =>
+          q
+            .from("run")
+            .where(
+              (r) =>
+                r.id === p.runId &&
+                (r.status === "completed" || r.status === "failed"),
+            )
+            .select((r) => ({ id: r.id })),
+        { runId },
+        { timeout: 5000 },
+      );
 
       await client.patch<Run>(`/api/v1/runs/${runId}`, {
         status: "running",
@@ -960,6 +1021,21 @@ describe("Runs API", () => {
       });
       const runId = createResponse.data.id;
 
+      // Wait for orchestrator to finish
+      await testDb.waitForQuery(
+        (q, p) =>
+          q
+            .from("run")
+            .where(
+              (r) =>
+                r.id === p.runId &&
+                (r.status === "completed" || r.status === "failed"),
+            )
+            .select((r) => ({ id: r.id })),
+        { runId },
+        { timeout: 5000 },
+      );
+
       // Mark as failed
       await client.patch(`/api/v1/runs/${runId}`, {
         status: "failed",
@@ -1278,6 +1354,26 @@ describe("Runs API", () => {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
+
+      // Wait for orchestrator to finish (test flow completes immediately)
+      await testDb.waitForQuery(
+        (q, p) =>
+          q
+            .from("run")
+            .where(
+              (r) =>
+                r.id === p.runId &&
+                (r.status === "completed" || r.status === "failed"),
+            )
+            .select((r) => ({ id: r.id })),
+        { runId },
+        { timeout: 5000 },
+      );
+
+      // Mark run as failed (not completed) so step-not-found check is reached
+      await client.patch(`/api/v1/runs/${runId}`, {
+        status: "failed",
+      });
 
       const retryResponse = await client.post<{ error: string }>(
         `/api/v1/runs/${runId}/steps/non-existent-step/retry`,

@@ -6,8 +6,8 @@
 import { spawn } from "child_process";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
-import type { IDatabase } from "pg-promise";
+import { executeSelect, executeUpdate } from "@tinqerjs/better-sqlite3-adapter";
+import type { Database } from "better-sqlite3";
 
 const logger = createLogger("maxq:startup:cleanup");
 
@@ -153,7 +153,7 @@ async function killMaxQProcesses(graceMs: number): Promise<void> {
  *
  * @param db - Database connection
  */
-async function failInterruptedWork(db: IDatabase<unknown>): Promise<void> {
+async function failInterruptedWork(db: Database): Promise<void> {
   logger.info("Failing interrupted work");
 
   const now = Date.now();
@@ -265,7 +265,7 @@ async function failInterruptedWork(db: IDatabase<unknown>): Promise<void> {
  * @param graceMs - Grace period in milliseconds for process termination (default: 5000)
  */
 export async function performStartupCleanup(
-  db: IDatabase<unknown>,
+  db: Database,
   graceMs: number = 5000,
 ): Promise<void> {
   logger.info("Starting server startup cleanup", { graceMs });

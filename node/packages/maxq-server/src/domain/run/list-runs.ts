@@ -1,7 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect } from "@tinqerjs/pg-promise-adapter";
+import { executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../data-context.js";
 import type { Run, ListRunsParams, PaginatedResult } from "../../types.js";
 import { mapRunFromDb } from "../../mappers.js";

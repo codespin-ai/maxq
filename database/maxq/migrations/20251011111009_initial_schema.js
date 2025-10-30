@@ -1,5 +1,5 @@
 /**
- * MaxQ Core Tables Migration
+ * MaxQ Core Tables Migration - SQLite
  * Creates: run, stage, step, run_log tables with all fields
  */
 
@@ -12,11 +12,11 @@ export async function up(knex) {
   await knex.schema.createTable("run", (table) => {
     table.text("id").primary();
     table.text("flow_name").notNullable();
-    table.text("status").notNullable(); // pending, running, completed, failed
-    table.jsonb("input");
-    table.jsonb("output");
-    table.jsonb("error");
-    table.jsonb("metadata");
+    table.text("status").notNullable(); // pending, running, paused, completed, failed
+    table.text("input"); // JSON stored as TEXT
+    table.text("output"); // JSON stored as TEXT
+    table.text("error"); // JSON stored as TEXT
+    table.text("metadata"); // JSON stored as TEXT
     table.bigInteger("created_at").notNullable();
     table.bigInteger("started_at");
     table.bigInteger("completed_at");
@@ -44,7 +44,7 @@ export async function up(knex) {
       .inTable("run")
       .onDelete("CASCADE");
     table.text("name").notNullable();
-    table.boolean("final").notNullable();
+    table.integer("final").notNullable(); // SQLite: 0 = false, 1 = true
     table.text("status").notNullable(); // pending, running, completed, failed
     table.bigInteger("created_at").notNullable();
     table.bigInteger("started_at");
@@ -74,12 +74,12 @@ export async function up(knex) {
       .onDelete("CASCADE");
     table.text("name").notNullable(); // Step script directory name (e.g., "fetch_news", "analyzer")
     table.text("status").notNullable(); // pending, running, completed, failed, cancelled
-    table.jsonb("depends_on").notNullable(); // Array of step IDs: ["fetch-news", "fetch-prices"]
+    table.text("depends_on").notNullable(); // JSON array stored as TEXT: ["fetch-news", "fetch-prices"]
     table.integer("retry_count").notNullable().defaultTo(0);
     table.integer("max_retries").notNullable();
-    table.jsonb("env"); // Environment variables
-    table.jsonb("fields"); // Step fields posted via POST /runs/{runId}/steps/{stepId}/fields
-    table.jsonb("error"); // Error details
+    table.text("env"); // JSON stored as TEXT
+    table.text("fields"); // JSON stored as TEXT - Step fields posted via POST /runs/{runId}/steps/{stepId}/fields
+    table.text("error"); // JSON stored as TEXT
     table.bigInteger("created_at").notNullable();
     table.bigInteger("started_at");
     table.bigInteger("completed_at");
@@ -105,21 +105,18 @@ export async function up(knex) {
 
   // Create run_log table
   await knex.schema.createTable("run_log", (table) => {
-    table.uuid("id").primary();
+    table.text("id").primary(); // UUID stored as text
     table
       .text("run_id")
       .notNullable()
       .references("id")
       .inTable("run")
       .onDelete("CASCADE");
-    table.text("entity_type").notNullable().checkIn(["run", "stage", "step"]); // Type of entity this log relates to
+    table.text("entity_type").notNullable().checkIn(["run", "stage", "step"]); // Type of entity: 'run', 'stage', 'step'
     table.text("entity_id"); // Specific entity ID (stage_id or step_id), null for run-level logs
-    table
-      .text("level")
-      .notNullable()
-      .checkIn(["debug", "info", "warn", "error"]);
+    table.text("level").notNullable().checkIn(["debug", "info", "warn", "error"]); // Log level: 'debug', 'info', 'warn', 'error'
     table.text("message").notNullable();
-    table.jsonb("metadata"); // Additional structured data
+    table.text("metadata"); // JSON stored as TEXT
     table.bigInteger("created_at").notNullable();
 
     // Indexes

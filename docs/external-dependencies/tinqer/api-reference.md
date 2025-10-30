@@ -48,14 +48,18 @@ function defineSelect<TSchema, TParams, TResult>(
 
 // SQL generation (from adapter packages)
 function toSql<TParams>(
-  plan: SelectPlanHandle<unknown, TParams> | SelectTerminalHandle<unknown, TParams>,
+  plan:
+    | SelectPlanHandle<unknown, TParams>
+    | SelectTerminalHandle<unknown, TParams>,
   params: TParams,
 ): { sql: string; params: TParams & Record<string, unknown> };
 
 // Execution (from adapter packages)
 async function executeSelect<TResult, TParams>(
   db: PgDatabase | BetterSqlite3Database,
-  plan: SelectPlanHandle<TResult, TParams> | SelectTerminalHandle<TResult, TParams>,
+  plan:
+    | SelectPlanHandle<TResult, TParams>
+    | SelectTerminalHandle<TResult, TParams>,
   params: TParams,
   options?: ExecuteOptions,
 ): Promise<TResult[] | TResult>;
@@ -182,7 +186,8 @@ const schema = createSchema<Schema>();
 const rowCount = await executeInsert(
   db,
   schema,
-  (q, params: { name: string }) => q.insertInto("users").values({ name: params.name }),
+  (q, params: { name: string }) =>
+    q.insertInto("users").values({ name: params.name }),
   { name: "Alice" },
 );
 
@@ -368,7 +373,8 @@ const schema = createSchema<Schema>();
 const deletedCount = await executeDelete(
   db,
   schema,
-  (q, params: { status: string }) => q.deleteFrom("users").where((u) => u.status === params.status),
+  (q, params: { status: string }) =>
+    q.deleteFrom("users").where((u) => u.status === params.status),
   { status: "inactive" },
 );
 ```

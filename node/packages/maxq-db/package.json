@@ -1,7 +1,7 @@
 {
   "name": "@codespin/maxq-db",
   "version": "0.0.9",
-  "description": "Database layer for MaxQ with PostgreSQL and SQLite support",
+  "description": "Database layer for MaxQ with SQLite support",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,8 +17,8 @@
   "dependencies": {
     "@codespin/maxq-core": "file:../maxq-core",
     "@tinqerjs/tinqer": "^0.0.22",
-    "@tinqerjs/pg-promise-adapter": "^0.0.22",
-    "pg-promise": "^12.2.0"
+    "@tinqerjs/better-sqlite3-adapter": "^0.0.22",
+    "better-sqlite3": "^11.7.0"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
