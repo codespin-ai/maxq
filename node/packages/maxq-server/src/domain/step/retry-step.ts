@@ -6,8 +6,8 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
-import type { IDatabase } from "pg-promise";
+import { executeSelect, executeUpdate } from "@tinqerjs/better-sqlite3-adapter";
+import type { Database } from "better-sqlite3";
 import type { DataContext } from "../data-context.js";
 import type { Step } from "../../types.js";
 import { mapStepFromDb } from "../../mappers.js";
@@ -28,7 +28,7 @@ export type RetryStepResult = {
  * Find all steps that transitively depend on a given step
  */
 async function findDependentSteps(
-  db: IDatabase<unknown>,
+  db: Database,
   runId: string,
   stepId: string,
 ): Promise<string[]> {

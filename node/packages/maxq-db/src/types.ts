@@ -3,9 +3,7 @@
  */
 
 // Database configuration
-export type DatabaseConfig =
-  | { type: "postgres"; connectionString: string }
-  | { type: "sqlite"; path: string };
+export type DatabaseConfig = { type: "sqlite"; path: string };
 
 // Run status values
 export type RunStatus =
@@ -48,11 +46,12 @@ export type RunDbRow = {
 };
 
 // Stage table row (exact database schema with snake_case)
+// Note: SQLite uses INTEGER (0/1) for boolean values
 export type StageDbRow = {
   id: string;
   run_id: string;
   name: string;
-  final: boolean;
+  final: number; // SQLite: 0 = false, 1 = true
   status: StageStatus;
   created_at: number;
   started_at: number | null;

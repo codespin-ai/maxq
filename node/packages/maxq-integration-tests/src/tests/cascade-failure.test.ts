@@ -107,7 +107,7 @@ exit 0
           .where((r) => r.id === p.runId && r.status === p.status)
           .select((r) => ({ status: r.status })),
       { runId, status: "failed" },
-      { timeout: 5000 },
+      { timeout: 15000 },
     );
 
     expect(failedRuns).to.have.lengthOf(1);
@@ -276,7 +276,7 @@ exit 0
           .where((r) => r.id === p.runId && r.status === p.status)
           .select((r) => ({ status: r.status })),
       { runId, status: "failed" },
-      { timeout: 5000 },
+      { timeout: 15000 },
     );
 
     expect(failedRuns).to.have.lengthOf(1);

@@ -15,7 +15,6 @@ use(chaiAsPromised);
 
 // Test configuration
 export const testDb = new TestDatabase({
-  dbName: "maxq_test",
   logger: testLogger,
 });
 
@@ -30,7 +29,6 @@ export const defaultFlowsRoot = join(packagesDir, "maxq-server/flows");
 
 export const testServer = new TestServer({
   port: 5099,
-  dbName: "maxq_test",
   logger: testLogger,
   flowsRoot: defaultFlowsRoot, // Explicitly set flows root
 });

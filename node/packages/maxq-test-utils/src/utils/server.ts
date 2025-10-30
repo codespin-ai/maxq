@@ -3,7 +3,7 @@ import { Logger, consoleLogger } from "./test-logger.js";
 
 export interface TestServerOptions {
   port?: number;
-  dbName?: string;
+  dbPath?: string;
   maxRetries?: number;
   retryDelay?: number;
   logger?: Logger;
@@ -14,7 +14,7 @@ export interface TestServerOptions {
 export class TestServer {
   private process: ChildProcess | null = null;
   private port: number;
-  private dbName: string;
+  private dbPath: string;
   private maxRetries: number;
   private retryDelay: number;
   private logger: Logger;
@@ -23,7 +23,7 @@ export class TestServer {
 
   constructor(options: TestServerOptions = {}) {
     this.port = options.port || 5099;
-    this.dbName = options.dbName || "maxq_test";
+    this.dbPath = options.dbPath || `/tmp/maxq_test_${Date.now()}.db`;
     this.maxRetries = options.maxRetries || 30;
     this.retryDelay = options.retryDelay || 1000;
     this.logger = options.logger || consoleLogger;
@@ -60,17 +60,11 @@ export class TestServer {
       // Starting test server
 
       // Set environment variables for test server
-      const dbHost = process.env.MAXQ_DB_HOST || "localhost";
-      const dbPort = process.env.MAXQ_DB_PORT || "5432";
-      const dbUser = process.env.MAXQ_DB_USER || "postgres";
-      const dbPassword = process.env.MAXQ_DB_PASSWORD || "postgres";
-      const databaseUrl = `postgresql://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${this.dbName}`;
-
       const env = {
         ...process.env,
         NODE_ENV: "test",
         MAXQ_SERVER_PORT: this.port.toString(),
-        MAXQ_DATABASE_URL: databaseUrl, // Constructed database URL for test database
+        MAXQ_SQLITE_PATH: this.dbPath, // SQLite database path for test database
         MAXQ_API_KEY: process.env.MAXQ_API_KEY || "test-token",
         MAXQ_FLOWS_ROOT: this.flowsRoot,
         MAXQ_MAX_CONCURRENT_STEPS: this.maxConcurrentSteps.toString(), // Set concurrency limit
@@ -186,8 +180,8 @@ export class TestServer {
     if (options.port !== undefined) {
       this.port = options.port;
     }
-    if (options.dbName !== undefined) {
-      this.dbName = options.dbName;
+    if (options.dbPath !== undefined) {
+      this.dbPath = options.dbPath;
     }
     if (options.maxConcurrentSteps !== undefined) {
       this.maxConcurrentSteps = options.maxConcurrentSteps;

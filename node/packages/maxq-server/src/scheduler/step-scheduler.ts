@@ -5,7 +5,7 @@
 
 import { createLogger } from "@codespin/maxq-logger";
 import { createSchema } from "@tinqerjs/tinqer";
-import { executeSelect, executeUpdate } from "@tinqerjs/pg-promise-adapter";
+import { executeSelect, executeUpdate } from "@tinqerjs/better-sqlite3-adapter";
 import type { DatabaseSchema } from "@codespin/maxq-db";
 import type { DataContext } from "../domain/data-context.js";
 import { executeStep } from "../executor/step-executor.js";

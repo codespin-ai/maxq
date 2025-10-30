@@ -1,7 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeInsert } from "@tinqerjs/pg-promise-adapter";
+import { executeInsert, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../data-context.js";
 import type { Step, CreateStepInput } from "../../types.js";
 import { mapStepFromDb } from "../../mappers.js";
@@ -22,40 +22,50 @@ export async function createStep(
   try {
     const now = Date.now();
 
-    const rows = await executeInsert(
+    // SQLite executeInsert returns row count, not data
+    const rowCount = executeInsert(
       ctx.db,
       schema,
       (q, p) =>
-        q
-          .insertInto("step")
-          .values({
-            id: p.id,
-            run_id: p.runId,
-            stage_id: p.stageId,
-            name: p.name,
-            status: "pending",
-            depends_on: p.dependsOn,
-            retry_count: 0,
-            max_retries: p.maxRetries,
-            env: p.env,
-            created_at: p.createdAt,
-          })
-          .returning((r) => r),
+        q.insertInto("step").values({
+          id: p.id,
+          run_id: p.runId,
+          stage_id: p.stageId,
+          name: p.name,
+          status: "pending",
+          depends_on: p.dependsOn,
+          retry_count: 0,
+          max_retries: p.maxRetries,
+          env: p.env,
+          created_at: p.createdAt,
+        }),
       {
         id: input.id, // Flow-supplied ID
         runId: input.runId,
         stageId: input.stageId,
         name: input.name,
-        dependsOn: JSON.stringify(input.dependsOn), // Must stringify for JSONB column
+        dependsOn: JSON.stringify(input.dependsOn), // JSON stored as TEXT in SQLite
         maxRetries: input.maxRetries,
-        env: input.env ? JSON.stringify(input.env) : null, // Must stringify for JSONB column
+        env: input.env ? JSON.stringify(input.env) : null, // JSON stored as TEXT in SQLite
         createdAt: now,
       },
     );
 
+    if (rowCount === 0) {
+      return failure(new Error("Failed to create step"));
+    }
+
+    // Follow-up SELECT to get the inserted row
+    const rows = executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("step").where((s) => s.id === p.id),
+      { id: input.id },
+    );
+
     const row = rows[0];
     if (!row) {
-      return failure(new Error("Failed to create step"));
+      return failure(new Error("Failed to retrieve created step"));
     }
 
     logger.info("Created step", {

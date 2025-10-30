@@ -1,7 +1,7 @@
 import { Result, success, failure } from "@codespin/maxq-core";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeUpdate, executeSelect } from "@tinqerjs/pg-promise-adapter";
+import { executeUpdate, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../data-context.js";
 import type { Stage, UpdateStageInput } from "../../types.js";
 import { mapStageFromDb } from "../../mappers.js";
@@ -40,7 +40,8 @@ export async function updateStage(
     }
 
     // Update with object literal - all values passed via params
-    const rows = await executeUpdate(
+    // SQLite executeUpdate returns row count, not data
+    const rowCount = executeUpdate(
       ctx.db,
       schema,
       (q, p) =>
@@ -50,8 +51,7 @@ export async function updateStage(
             status: p.status,
             completed_at: p.completedAt,
           })
-          .where((s) => s.id === p.id)
-          .returning((s) => s),
+          .where((s) => s.id === p.id),
       {
         id,
         status: input.status ?? existing.status,
@@ -59,7 +59,19 @@ export async function updateStage(
       },
     );
 
-    const row = rows[0];
+    if (rowCount === 0) {
+      return failure(new Error("Stage not found"));
+    }
+
+    // Follow-up SELECT to get the updated row
+    const updatedRows = executeSelect(
+      ctx.db,
+      schema,
+      (q, p) => q.from("stage").where((s) => s.id === p.id),
+      { id },
+    );
+
+    const row = updatedRows[0];
     if (!row) {
       return failure(new Error("Stage not found after update"));
     }

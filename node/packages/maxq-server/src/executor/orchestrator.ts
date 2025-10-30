@@ -6,9 +6,9 @@
 import { createLogger } from "@codespin/maxq-logger";
 import type { ExecutorConfig } from "./types.js";
 import { executeFlowInitial } from "./flow-executor.js";
-import type { IDatabase } from "pg-promise";
 import { createSchema } from "@tinqerjs/tinqer";
-import { executeUpdate, executeSelect } from "@tinqerjs/pg-promise-adapter";
+import { executeUpdate, executeSelect } from "@tinqerjs/better-sqlite3-adapter";
+import type { Database } from "better-sqlite3";
 import type { DatabaseSchema } from "@codespin/maxq-db";
 import type { StepProcessRegistry } from "./process-registry.js";
 
@@ -38,7 +38,7 @@ export async function waitForAllOrchestrators(): Promise<void> {
  * Context for orchestrator operations
  */
 export type OrchestratorContext = {
-  db: IDatabase<unknown>;
+  db: Database;
   config: ExecutorConfig;
   apiUrl: string;
   processRegistry: StepProcessRegistry;
@@ -167,7 +167,7 @@ export async function startRun(
  * Sets startedAt when transitioning to "running"
  */
 async function updateRunStatus(
-  db: IDatabase<unknown>,
+  db: Database,
   runId: string,
   status: "pending" | "running" | "completed" | "failed",
 ): Promise<void> {
@@ -201,7 +201,7 @@ async function updateRunStatus(
  * Update run stdout/stderr in database
  */
 async function updateRunOutput(
-  db: IDatabase<unknown>,
+  db: Database,
   runId: string,
   stdout: string,
   stderr: string,

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { createLogger } from "@codespin/maxq-logger";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect } from "@tinqerjs/pg-promise-adapter";
+import { executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DataContext } from "../../domain/data-context.js";
 
 const logger = createLogger("maxq:handlers:runs:query-fields");

@@ -44,7 +44,13 @@ import {
 } from "@tinqerjs/pg-promise-adapter";
 
 interface Schema {
-  users: { id: number; name: string; email: string; age: number; active: boolean };
+  users: {
+    id: number;
+    name: string;
+    email: string;
+    age: number;
+    active: boolean;
+  };
 }
 
 const pgp = pgPromise();
@@ -82,7 +88,12 @@ const createdUsers = await executeInsert(
   (q) =>
     q
       .insertInto("users")
-      .values({ name: "Alice", email: "alice@example.com", age: 30, active: true })
+      .values({
+        name: "Alice",
+        email: "alice@example.com",
+        age: 30,
+        active: true,
+      })
       .returning((u) => ({ id: u.id, createdAt: u.createdAt })),
   {},
 );
@@ -109,7 +120,9 @@ const deletedCount = await executeDelete(
 
 // Generate SQL without executing
 const { sql, params } = toSql(
-  defineSelect(schema, (q) => q.from("users").where((u) => u.email.endsWith("@example.com"))),
+  defineSelect(schema, (q) =>
+    q.from("users").where((u) => u.email.endsWith("@example.com")),
+  ),
   {},
 );
 ```
@@ -146,7 +159,13 @@ import {
 } from "@tinqerjs/better-sqlite3-adapter";
 
 interface Schema {
-  users: { id: number; name: string; email: string; age: number; isActive: number };
+  users: {
+    id: number;
+    name: string;
+    email: string;
+    age: number;
+    isActive: number;
+  };
 }
 
 const db = new Database(":memory:");
@@ -165,7 +184,10 @@ db.exec(`
 const inserted = executeInsert(
   db,
   schema,
-  (q) => q.insertInto("users").values({ name: "Sam", email: "sam@example.com", age: 28 }),
+  (q) =>
+    q
+      .insertInto("users")
+      .values({ name: "Sam", email: "sam@example.com", age: 28 }),
   {},
 );
 // inserted === 1
@@ -195,13 +217,16 @@ const updated = executeUpdate(
 const removed = executeDelete(
   db,
   schema,
-  (q, params: { cutoff: number }) => q.deleteFrom("users").where((u) => u.age < params.cutoff),
+  (q, params: { cutoff: number }) =>
+    q.deleteFrom("users").where((u) => u.age < params.cutoff),
   { cutoff: 18 },
 );
 
 // Need the SQL text for custom execution?
 const { sql, params } = toSql(
-  defineSelect(schema, (q) => q.from("users").where((u) => u.name.startsWith("S"))),
+  defineSelect(schema, (q) =>
+    q.from("users").where((u) => u.name.startsWith("S")),
+  ),
   {},
 );
 const rows = db.prepare(sql).all(params);

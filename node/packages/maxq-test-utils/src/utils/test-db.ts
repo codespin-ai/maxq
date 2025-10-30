@@ -1,92 +1,56 @@
 import knex from "knex";
 import { Knex } from "knex";
-import pgPromise from "pg-promise";
-import type { IDatabase } from "pg-promise";
+import Database from "better-sqlite3";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import * as fs from "fs";
 import { Logger, consoleLogger } from "./test-logger.js";
 import { schema } from "@codespin/maxq-db";
-import { executeSelect } from "@tinqerjs/pg-promise-adapter";
+import { executeSelect } from "@tinqerjs/better-sqlite3-adapter";
 import type { DatabaseSchema } from "@codespin/maxq-db";
 import type { QueryBuilder } from "@tinqerjs/tinqer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface TestDatabaseConfig {
-  dbName?: string;
-  host?: string;
-  port?: number;
-  user?: string;
-  password?: string;
+  dbPath?: string; // Path to SQLite database file
   logger?: Logger;
 }
 
-const pgp = pgPromise();
-// Parse bigint as number instead of string
-pgp.pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
-
 export class TestDatabase {
-  private db: Knex | null = null;
-  private pgDb: IDatabase<unknown> | null = null;
-  private config: TestDatabaseConfig;
+  private knexDb: Knex | null = null;
+  private db: Database.Database | null = null;
   private logger: Logger;
+  private dbPath: string;
 
   constructor(config: TestDatabaseConfig = {}) {
-    this.config = {
-      dbName: config.dbName || "maxq_test",
-      host: config.host || process.env.MAXQ_DB_HOST || "localhost",
-      port: config.port || parseInt(process.env.MAXQ_DB_PORT || "5432"),
-      user: config.user || process.env.MAXQ_DB_USER || "postgres",
-      password: config.password || process.env.MAXQ_DB_PASSWORD || "postgres",
-      logger: config.logger,
-    };
+    // Use a unique temporary file for each test database instance
+    this.dbPath =
+      config.dbPath || path.join("/tmp", `maxq_test_${Date.now()}.db`);
     this.logger = config.logger || consoleLogger;
   }
 
   public async setup(): Promise<void> {
-    this.logger.info(`📦 Setting up test database ${this.config.dbName}...`);
+    this.logger.info(`📦 Setting up test database ${this.dbPath}...`);
 
-    // First connect to postgres database to drop/create test database
-    const adminDb = knex({
-      client: "pg",
-      connection: {
-        host: this.config.host,
-        port: this.config.port,
-        database: "postgres", // Connect to postgres db to manage test db
-        user: this.config.user,
-        password: this.config.password,
-      },
-    });
-
-    try {
-      // Drop test database if it exists
-      this.logger.info(
-        `Dropping database ${this.config.dbName} if it exists...`,
-      );
-      await adminDb.raw(`DROP DATABASE IF EXISTS "${this.config.dbName}"`);
-
-      // Create fresh test database
-      this.logger.info(`Creating fresh database ${this.config.dbName}...`);
-      await adminDb.raw(`CREATE DATABASE "${this.config.dbName}"`);
-    } finally {
-      await adminDb.destroy();
+    // Delete existing database file if it exists
+    if (fs.existsSync(this.dbPath)) {
+      this.logger.info(`Deleting existing database file ${this.dbPath}...`);
+      fs.unlinkSync(this.dbPath);
     }
 
-    // Now connect to the fresh test database with Knex (for migrations)
-    this.db = knex({
-      client: "pg",
+    // Create Knex connection for migrations
+    this.knexDb = knex({
+      client: "better-sqlite3",
       connection: {
-        host: this.config.host,
-        port: this.config.port,
-        database: this.config.dbName,
-        user: this.config.user,
-        password: this.config.password,
+        filename: this.dbPath,
       },
+      useNullAsDefault: true,
     });
 
-    // Also create pg-promise connection for Tinqer queries
-    const connectionString = `postgresql://${this.config.user}:${this.config.password}@${this.config.host}:${this.config.port}/${this.config.dbName}`;
-    this.pgDb = pgp(connectionString);
+    // Create better-sqlite3 connection for Tinqer queries
+    this.db = new Database(this.dbPath);
+    this.db.pragma("foreign_keys = ON");
 
     // Run all migrations from scratch
     const migrationsPath = path.join(
@@ -95,54 +59,62 @@ export class TestDatabase {
     );
     this.logger.info(`Running full migrations from: ${migrationsPath}`);
 
-    await this.db.migrate.latest({
+    await this.knexDb.migrate.latest({
       directory: migrationsPath,
     });
 
-    this.logger.info(
-      `✅ Test database ${this.config.dbName} ready with fresh schema`,
-    );
+    this.logger.info(`✅ Test database ${this.dbPath} ready with fresh schema`);
   }
 
   public async truncateAllTables(): Promise<void> {
-    if (!this.pgDb) throw new Error("Database not initialized");
+    if (!this.db) throw new Error("Database not initialized");
 
-    // Get all tables except knex_migrations using pg-promise
-    // This uses the SAME connection pool as the server, avoiding isolation issues
-    const tables = await this.pgDb.any<{ tablename: string }>(
-      `
-      SELECT tablename FROM pg_tables
-      WHERE schemaname = 'public'
-      AND tablename NOT IN ('knex_migrations', 'knex_migrations_lock')
+    // Get all tables except knex_migrations from SQLite
+    const tables = this.db
+      .prepare(
+        `
+      SELECT name FROM sqlite_master
+      WHERE type = 'table'
+      AND name NOT IN ('knex_migrations', 'knex_migrations_lock', 'sqlite_sequence')
     `,
-    );
+      )
+      .all() as { name: string }[];
 
-    // Truncate all tables using pg-promise (not Knex)
-    // This ensures the server's pg-promise connection sees the truncation immediately
-    for (const { tablename } of tables) {
-      await this.pgDb.none(`TRUNCATE TABLE "${tablename}" CASCADE`);
+    // SQLite doesn't support TRUNCATE, so we use DELETE
+    // Disable foreign keys temporarily to avoid constraint errors
+    this.db.pragma("foreign_keys = OFF");
+
+    for (const { name } of tables) {
+      this.db.prepare(`DELETE FROM "${name}"`).run();
     }
+
+    // Re-enable foreign keys
+    this.db.pragma("foreign_keys = ON");
   }
 
   public async cleanup(): Promise<void> {
+    if (this.knexDb) {
+      await this.knexDb.destroy();
+      this.knexDb = null;
+    }
     if (this.db) {
-      await this.db.destroy();
+      this.db.close();
       this.db = null;
     }
-    if (this.pgDb) {
-      await this.pgDb.$pool.end();
-      this.pgDb = null;
+    // Delete the database file
+    if (fs.existsSync(this.dbPath)) {
+      fs.unlinkSync(this.dbPath);
     }
   }
 
   public getKnex(): Knex {
-    if (!this.db) throw new Error("Database not initialized");
-    return this.db;
+    if (!this.knexDb) throw new Error("Database not initialized");
+    return this.knexDb;
   }
 
-  public getPgDb(): IDatabase<unknown> {
-    if (!this.pgDb) throw new Error("Database not initialized");
-    return this.pgDb;
+  public getDb(): Database.Database {
+    if (!this.db) throw new Error("Database not initialized");
+    return this.db;
   }
 
   /**
@@ -159,21 +131,21 @@ export class TestDatabase {
     completed_at?: number;
     termination_reason?: string;
   }): Promise<void> {
-    if (!this.pgDb) throw new Error("Database not initialized");
-    await this.pgDb.none(
+    if (!this.db) throw new Error("Database not initialized");
+    const stmt = this.db.prepare(
       `INSERT INTO stage (id, run_id, name, final, status, created_at, started_at, completed_at, termination_reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        stage.id,
-        stage.run_id,
-        stage.name,
-        stage.final,
-        stage.status,
-        stage.created_at,
-        stage.started_at || null,
-        stage.completed_at || null,
-        stage.termination_reason || null,
-      ],
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    stmt.run(
+      stage.id,
+      stage.run_id,
+      stage.name,
+      stage.final ? 1 : 0, // Convert boolean to SQLite INTEGER
+      stage.status,
+      stage.created_at,
+      stage.started_at || null,
+      stage.completed_at || null,
+      stage.termination_reason || null,
     );
   }
 
@@ -200,32 +172,32 @@ export class TestDatabase {
     stderr?: string;
     termination_reason?: string;
   }): Promise<void> {
-    if (!this.pgDb) throw new Error("Database not initialized");
-    await this.pgDb.none(
+    if (!this.db) throw new Error("Database not initialized");
+    const stmt = this.db.prepare(
       `INSERT INTO step (id, run_id, stage_id, name, status, depends_on, retry_count, max_retries,
         env, fields, error, created_at, started_at, completed_at, duration_ms, stdout, stderr,
         termination_reason, queued_at, claimed_at, heartbeat_at, worker_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NULL, NULL, NULL, NULL)`,
-      [
-        step.id,
-        step.run_id,
-        step.stage_id,
-        step.name,
-        step.status,
-        JSON.stringify(step.depends_on),
-        step.retry_count,
-        step.max_retries,
-        step.env ? JSON.stringify(step.env) : null,
-        step.fields ? JSON.stringify(step.fields) : null,
-        step.error ? JSON.stringify(step.error) : null,
-        step.created_at,
-        step.started_at || null,
-        step.completed_at || null,
-        step.duration_ms || null,
-        step.stdout || null,
-        step.stderr || null,
-        step.termination_reason || null,
-      ],
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+    );
+    stmt.run(
+      step.id,
+      step.run_id,
+      step.stage_id,
+      step.name,
+      step.status,
+      JSON.stringify(step.depends_on),
+      step.retry_count,
+      step.max_retries,
+      step.env ? JSON.stringify(step.env) : null,
+      step.fields ? JSON.stringify(step.fields) : null,
+      step.error ? JSON.stringify(step.error) : null,
+      step.created_at,
+      step.started_at || null,
+      step.completed_at || null,
+      step.duration_ms || null,
+      step.stdout || null,
+      step.stderr || null,
+      step.termination_reason || null,
     );
   }
 
@@ -249,7 +221,7 @@ export class TestDatabase {
       condition?: (rows: TResult[]) => boolean;
     } = {},
   ): Promise<TResult[]> {
-    if (!this.pgDb) throw new Error("Database not initialized");
+    if (!this.db) throw new Error("Database not initialized");
 
     const timeout = options.timeout || 5000; // 5 seconds default
     const interval = options.interval || 100; // 100ms default
@@ -258,12 +230,12 @@ export class TestDatabase {
     const startTime = Date.now();
 
     while (true) {
-      const rows = (await executeSelect(
-        this.pgDb,
+      const rows = executeSelect(
+        this.db,
         schema,
         queryBuilder,
         params,
-      )) as TResult[];
+      ) as TResult[];
 
       if (condition(rows)) {
         return rows;
@@ -299,7 +271,7 @@ export class TestDatabase {
       condition?: (rows: T[]) => boolean;
     } = {},
   ): Promise<T[]> {
-    if (!this.db) throw new Error("Database not initialized");
+    if (!this.knexDb) throw new Error("Database not initialized");
 
     const timeout = options.timeout || 5000; // 5 seconds default
     const interval = options.interval || 100; // 100ms default
@@ -308,9 +280,7 @@ export class TestDatabase {
     const startTime = Date.now();
 
     while (true) {
-      const rows = await this.db
-        .raw(query, params)
-        .then((result) => result.rows);
+      const rows = (await this.knexDb.raw(query, params)) as T[];
 
       if (condition(rows)) {
         return rows;
