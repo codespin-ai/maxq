@@ -145,14 +145,14 @@ This means: Focus on clean, optimal implementations without worrying about exist
 
 ### 5. Database Conventions
 
-- **PostgreSQL AND SQLite support** with **Tinqer** for type-safe queries
-- **Knex.js** for migrations (supports both databases)
+- **SQLite database** with **Tinqer** for type-safe queries
+- **Knex.js** for migrations
 - Table names: **singular** and **snake_case** (e.g., `run`, `step`, `artifact`)
 - TypeScript: **camelCase** for all variables/properties
 - SQL: **snake_case** for all table/column names
 - **DbRow Pattern**: All persistence functions use `XxxDbRow` types that mirror exact database schema
 - **Mapper Functions**: `mapXxxFromDb()` and `mapXxxToDb()` handle conversions between snake_case DB and camelCase domain types
-- **Repository Pattern**: Abstract database differences between PostgreSQL and SQLite
+- **JSON Handling**: SQLite stores JSON as TEXT, requiring parsing on read and stringification on write
 
 **Query Optimization Guidelines**:
 
@@ -283,12 +283,12 @@ Use Tinqer for type-safe database queries:
 
 ```typescript
 import { createSchema } from "@tinqerjs/tinqer";
-import { executeSelect, executeInsert } from "@tinqerjs/pg-promise-adapter";
+import { executeSelect, executeInsert } from "@tinqerjs/better-sqlite3-adapter";
 
 const schema = createSchema<DatabaseSchema>();
 
 // ✅ Good - Type-safe select
-const runs = await executeSelect(
+const runs = executeSelect(
   ctx.db,
   schema,
   (q, p) =>
@@ -298,8 +298,8 @@ const runs = await executeSelect(
   { flowName, status },
 );
 
-// ✅ Good - Type-safe insert
-const [newRun] = await executeInsert(
+// ✅ Good - Type-safe insert (returns row count in SQLite)
+const rowCount = executeInsert(
   ctx.db,
   schema,
   (q, p) =>
@@ -311,29 +311,35 @@ const [newRun] = await executeInsert(
     }),
   { id, flowName, status, createdAt },
 );
+
+// Note: SQLite executeInsert returns row count, not data.
+// Use a follow-up SELECT to retrieve the inserted row.
 ```
 
-### Repository Pattern
+### SQLite Implementation Pattern
 
-Abstract database differences between PostgreSQL and SQLite:
+SQLite-specific considerations in the codebase:
 
 ```typescript
-// ✅ Good - Repository interface
-export interface RunRepository {
-  createRun(input: CreateRunInput): Promise<Result<Run, Error>>;
-  getRun(id: string): Promise<Result<Run | null, Error>>;
-  listRuns(filters: RunFilters): Promise<Result<Run[], Error>>;
-}
+// ✅ Good - JSON field handling for SQLite
+// SQLite stores JSON as TEXT, so parse on read:
+const dependsOn = typeof dependsOnRaw === "string"
+  ? JSON.parse(dependsOnRaw)
+  : dependsOnRaw || [];
 
-// PostgreSQL implementation using Tinqer
-export function createPostgresRunRepository(db: IDatabase<any>): RunRepository {
-  // Implementation using @tinqerjs/pg-promise-adapter
-}
+// And stringify on write:
+const input = data.input ? JSON.stringify(data.input) : null;
 
-// SQLite implementation using Tinqer
-export function createSqliteRunRepository(db: Database): RunRepository {
-  // Implementation using @tinqerjs/tinqer-sql-better-sqlite3
+// ✅ Good - INSERT pattern for SQLite (no RETURNING clause)
+const rowCount = executeInsert(ctx.db, schema, ...);
+if (rowCount === 0) {
+  return failure(new Error("Failed to insert"));
 }
+// Follow-up SELECT to get the inserted data
+const rows = executeSelect(ctx.db, schema,
+  (q, p) => q.from("table").where((t) => t.id === p.id),
+  { id }
+);
 ```
 
 ### Domain Function Pattern
@@ -596,8 +602,8 @@ for (const step of response.steps) {
 2. **Step execution issues**: Verify step.sh exists and environment variables are passed
 3. **Stage callback issues**: Check if stage is marked as final or if previous stage completed
 4. **Artifact issues**: Verify namespacing (stepName[sequence]/artifactName)
-5. **Database connection**: Check DATABASE_URL for PostgreSQL or SQLITE_PATH for SQLite
-6. **Repository pattern**: Ensure correct repository implementation is injected
+5. **Database connection**: Check SQLITE_PATH environment variable for SQLite database path
+6. **JSON fields**: Ensure JSON fields are parsed from TEXT (SQLite stores JSON as TEXT)
 
 ## Security Model
 
