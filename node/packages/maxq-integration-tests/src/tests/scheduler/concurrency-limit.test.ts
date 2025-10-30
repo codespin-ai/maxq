@@ -29,6 +29,7 @@ describe("Scheduler Concurrency Limit", () => {
 
     // Create test server with LOW concurrency limit
     testServer = new TestServer({
+      dbPath: testDb.getDbPath(), // Use the same database file as testDb
       flowsRoot: "/tmp/flows",
       port: 0, // Random port
       maxConcurrentSteps: 2, // CRITICAL: Only allow 2 concurrent steps

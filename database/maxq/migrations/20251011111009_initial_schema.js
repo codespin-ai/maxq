@@ -112,9 +112,9 @@ export async function up(knex) {
       .references("id")
       .inTable("run")
       .onDelete("CASCADE");
-    table.text("entity_type").notNullable(); // Type of entity: 'run', 'stage', 'step'
+    table.text("entity_type").notNullable().checkIn(["run", "stage", "step"]); // Type of entity: 'run', 'stage', 'step'
     table.text("entity_id"); // Specific entity ID (stage_id or step_id), null for run-level logs
-    table.text("level").notNullable(); // Log level: 'debug', 'info', 'warn', 'error'
+    table.text("level").notNullable().checkIn(["debug", "info", "warn", "error"]); // Log level: 'debug', 'info', 'warn', 'error'
     table.text("message").notNullable();
     table.text("metadata"); // JSON stored as TEXT
     table.bigInteger("created_at").notNullable();
