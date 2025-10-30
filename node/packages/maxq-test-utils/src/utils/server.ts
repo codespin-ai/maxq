@@ -88,7 +88,8 @@ export class TestServer {
 
       this.process.stdout?.on("data", (data) => {
         const output = data.toString();
-        // Server output received
+        // Log all server output for debugging
+        console.log("[SERVER]", output.trim());
 
         // Check if server is ready
         if (output.includes("Server running") || output.includes("started")) {

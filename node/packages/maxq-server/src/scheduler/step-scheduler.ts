@@ -139,6 +139,13 @@ async function pickAndClaimSteps(
     { queryLimit },
   );
 
+  if (allPendingSteps.length > 0) {
+    logger.debug("Found pending steps in scheduler", {
+      count: allPendingSteps.length,
+      steps: allPendingSteps.map((s) => ({ id: s.id, runId: s.run_id })),
+    });
+  }
+
   if (allPendingSteps.length === 0) {
     return; // No work to do
   }
@@ -199,10 +206,19 @@ async function pickAndClaimSteps(
     const runId = stepRow.step.run_id;
     const stageId = stepRow.step.stage_id;
     const stepName = stepRow.step.name;
-    const dependsOn = (stepRow.step.depends_on as unknown as string[]) || [];
+    // Parse depends_on - SQLite returns JSON as string, PostgreSQL returns as array
+    const dependsOnRaw = stepRow.step.depends_on;
+    const dependsOn =
+      typeof dependsOnRaw === "string"
+        ? JSON.parse(dependsOnRaw)
+        : (dependsOnRaw as unknown as string[]) || [];
     const flowName = stepRow.run.flow_name;
     const maxRetries = stepRow.step.max_retries;
-    const env = stepRow.step.env as unknown as Record<string, string> | null;
+    // Parse env - SQLite returns JSON as string, PostgreSQL returns as object
+    const envRaw = stepRow.step.env;
+    const env = (
+      envRaw ? (typeof envRaw === "string" ? JSON.parse(envRaw) : envRaw) : null
+    ) as Record<string, string> | null;
 
     // Check if all dependencies are completed
     if (dependsOn.length > 0) {
@@ -527,7 +543,12 @@ async function cascadeFailure(
       }
 
       // Check if this step depends on any failed step
-      const dependsOn = (step.depends_on as unknown as string[]) || [];
+      // Parse depends_on - SQLite returns JSON as string, PostgreSQL returns as array
+      const dependsOnRaw = step.depends_on;
+      const dependsOn: string[] =
+        typeof dependsOnRaw === "string"
+          ? JSON.parse(dependsOnRaw)
+          : (dependsOnRaw as unknown as string[]) || [];
       const dependsOnFailedStep = dependsOn.some((depId) =>
         failedStepIds.has(depId),
       );

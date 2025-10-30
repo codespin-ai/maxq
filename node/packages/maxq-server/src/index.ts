@@ -50,6 +50,7 @@ app.use((req, _res, next) => {
 
 // Initialize database connection
 const sqlitePath = process.env.MAXQ_SQLITE_PATH || "./data/maxq.db";
+logger.info("Connecting to SQLite database", { path: sqlitePath });
 const db = createConnection(sqlitePath);
 
 // Initialize executor config

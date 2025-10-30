@@ -117,6 +117,10 @@ export class TestDatabase {
     return this.db;
   }
 
+  public getDbPath(): string {
+    return this.dbPath;
+  }
+
   /**
    * Insert a stage for testing purposes
    */
