@@ -142,5 +142,3 @@ vite.config.ts.timestamp-*
 .tests/
 .todos/
 .analysis/
-devenv/pgdata/
-devenv/redisdata/

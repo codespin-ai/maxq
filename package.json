@@ -37,7 +37,6 @@
     "typescript-eslint": "^8.20.0"
   },
   "dependencies": {
-    "pg": "^8.13.1",
     "better-sqlite3": "^11.8.0"
   }
 }
