@@ -8,7 +8,7 @@ import { testDb, client, testServer, defaultFlowsRoot } from "../test-setup.js";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Run } from "@codespin/maxq-server";
+import type { Run } from "maxq";
 
 describe("Cascade Failure with Dependencies", () => {
   let flowsRoot: string;

@@ -1,10 +1,5 @@
-import {
-  TestDatabase,
-  TestServer,
-  TestHttpClient,
-  testLogger,
-} from "@codespin/maxq-test-utils";
-import type { PaginatedResult, Run } from "@codespin/maxq-server";
+import { TestDatabase, TestServer, TestHttpClient, testLogger } from "maxq";
+import type { PaginatedResult, Run } from "maxq";
 import { use } from "chai";
 import chaiAsPromised from "chai-as-promised";
 import { mkdir, writeFile, chmod } from "fs/promises";
@@ -20,12 +15,11 @@ export const testDb = new TestDatabase({
 
 // Compute flows root for server - must match where we create dummy flows
 // import.meta.url points to src/test-setup.ts when running with ts-node
-// Go up to packages/maxq-integration-tests, then to maxq-server
+// Go up to packages/maxq-integration-tests, then to test-flows
 const currentFile = new URL(import.meta.url).pathname;
 const srcDir = join(currentFile, ".."); // src/
 const packageRoot = join(srcDir, ".."); // maxq-integration-tests/
-const packagesDir = join(packageRoot, ".."); // packages/
-export const defaultFlowsRoot = join(packagesDir, "maxq-server/flows");
+export const defaultFlowsRoot = join(packageRoot, "test-flows");
 
 export const testServer = new TestServer({
   port: 5099,

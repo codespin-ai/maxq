@@ -4,15 +4,11 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import {
-  TestDatabase,
-  TestServer,
-  TestHttpClient,
-} from "@codespin/maxq-test-utils";
+import { TestDatabase, TestServer, TestHttpClient } from "maxq";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Run } from "@codespin/maxq-server";
+import type { Run } from "maxq";
 
 describe("Scheduler Concurrency Limit", () => {
   let testDb: TestDatabase;

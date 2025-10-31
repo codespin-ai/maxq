@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { testDb, client } from "../test-setup.js";
-import type { Run, PaginatedResult } from "@codespin/maxq-server";
+import type { Run, PaginatedResult } from "maxq";
 
 describe("Runs API", () => {
   beforeEach(async () => {

@@ -4,7 +4,9 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import { spawnProcess } from "@codespin/maxq-server/dist/executor/process-spawn.js";
+import { processSpawn } from "maxq";
+
+const { spawnProcess } = processSpawn;
 import { mkdtemp, writeFile, chmod, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";

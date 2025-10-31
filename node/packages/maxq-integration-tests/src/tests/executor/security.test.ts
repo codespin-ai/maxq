@@ -4,13 +4,16 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
+import { security } from "maxq";
+
+const {
   validateName,
   resolveSafePath,
   sanitizeEnv,
   buildFlowPath,
   buildStepPath,
-} from "@codespin/maxq-server/dist/executor/security.js";
+  validateExecutable,
+} = security;
 import { mkdtemp, writeFile, chmod, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -192,9 +195,6 @@ describe("Executor Security Utilities", () => {
       await writeFile(scriptPath, "#!/bin/bash\necho 'test'\n");
       await chmod(scriptPath, 0o755);
 
-      const { validateExecutable } = await import(
-        "@codespin/maxq-server/dist/executor/security.js"
-      );
       await expect(validateExecutable(scriptPath)).to.not.be.rejected;
     });
 
@@ -203,9 +203,6 @@ describe("Executor Security Utilities", () => {
       await writeFile(scriptPath, "#!/bin/bash\necho 'test'\n");
       await chmod(scriptPath, 0o644);
 
-      const { validateExecutable } = await import(
-        "@codespin/maxq-server/dist/executor/security.js"
-      );
       await expect(validateExecutable(scriptPath)).to.be.rejectedWith(
         /not executable/,
       );
@@ -214,9 +211,6 @@ describe("Executor Security Utilities", () => {
     it("should reject non-existent file", async () => {
       const scriptPath = join(tempDir, "nonexistent.sh");
 
-      const { validateExecutable } = await import(
-        "@codespin/maxq-server/dist/executor/security.js"
-      );
       await expect(validateExecutable(scriptPath)).to.be.rejectedWith(
         /does not exist/,
       );

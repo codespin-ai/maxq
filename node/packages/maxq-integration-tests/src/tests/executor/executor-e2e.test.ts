@@ -5,17 +5,15 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import {
+import { flowExecutor, stepExecutor, StepProcessRegistry } from "maxq";
+import type { StepDefinition } from "maxq";
+
+const {
   executeFlowInitial,
   executeFlowStageCompleted,
   executeFlowStageFailed,
-} from "@codespin/maxq-server/dist/executor/flow-executor.js";
-import {
-  executeStep,
-  executeStepsDAG,
-  type StepDefinition,
-} from "@codespin/maxq-server/dist/executor/step-executor.js";
-import { StepProcessRegistry } from "@codespin/maxq-server/dist/executor/process-registry.js";
+} = flowExecutor;
+const { executeStep, executeStepsDAG } = stepExecutor;
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
