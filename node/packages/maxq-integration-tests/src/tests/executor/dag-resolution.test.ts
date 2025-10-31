@@ -4,10 +4,10 @@
 
 import { describe, it } from "mocha";
 import { expect } from "chai";
-import {
-  resolveDAG,
-  type StepDefinition,
-} from "@codespin/maxq-server/dist/executor/step-executor.js";
+import { stepExecutor } from "maxq";
+import type { StepDefinition } from "maxq";
+
+const { resolveDAG } = stepExecutor;
 
 describe("Executor DAG Resolution", () => {
   describe("resolveDAG", () => {

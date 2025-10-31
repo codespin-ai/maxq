@@ -4,10 +4,9 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import {
-  discoverFlows,
-  getFlow,
-} from "@codespin/maxq-server/dist/executor/flow-discovery.js";
+import { flowDiscovery } from "maxq";
+
+const { discoverFlows, getFlow } = flowDiscovery;
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";

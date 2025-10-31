@@ -9,7 +9,7 @@ import { testDb, client, testServer } from "../test-setup.js";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Run } from "@codespin/maxq-server";
+import type { Run } from "maxq";
 
 describe("Workflow Execution E2E", () => {
   let flowsRoot: string;
