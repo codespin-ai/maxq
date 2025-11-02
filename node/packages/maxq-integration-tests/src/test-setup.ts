@@ -1,12 +1,12 @@
-import { TestDatabase, TestServer, TestHttpClient, testLogger } from "maxq";
+import {
+  TestDatabase,
+  TestServer,
+  TestHttpClient,
+  testLogger,
+} from "maxq-test-utils";
 import type { PaginatedResult, Run } from "maxq";
-import { use } from "chai";
-import chaiAsPromised from "chai-as-promised";
 import { mkdir, writeFile, chmod } from "fs/promises";
 import { join } from "path";
-
-// Setup chai-as-promised for async assertions
-use(chaiAsPromised);
 
 // Test configuration
 export const testDb = new TestDatabase({

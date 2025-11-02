@@ -20,13 +20,11 @@ export type {
 export type { RunStatus, StageStatus, StepStatus } from "./lib/db/index.js";
 export type { StepDefinition } from "./executor/step-executor.js";
 
-// Export testing utilities
-export { waitForAllOrchestrators } from "./executor/orchestrator.js";
+// Export database schema for test utilities
+export { schema } from "./lib/db/index.js";
+export type { DatabaseSchema } from "./lib/db/index.js";
 
-// Export test-utils for integration tests
-export * from "./lib/test-utils/index.js";
-
-// Export executor modules for deep imports in tests
+// Export executor modules for testing
 export * as flowExecutor from "./executor/flow-executor.js";
 export * as stepExecutor from "./executor/step-executor.js";
 export * as flowDiscovery from "./executor/flow-discovery.js";

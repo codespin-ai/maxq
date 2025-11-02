@@ -5,9 +5,9 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
 import { Logger, consoleLogger } from "./test-logger.js";
-import { schema } from "../../db/index.js";
+import { schema } from "maxq";
 import { executeSelect } from "@tinqerjs/better-sqlite3-adapter";
-import type { DatabaseSchema } from "../../db/index.js";
+import type { DatabaseSchema } from "maxq";
 import type { QueryBuilder } from "@tinqerjs/tinqer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -53,8 +53,8 @@ export class TestDatabase {
     this.db.pragma("foreign_keys = ON");
 
     // Run all migrations from scratch
-    // Migrations are at package root: ../../../../migrations from __dirname (dist/lib/test-utils/utils)
-    const migrationsPath = path.resolve(__dirname, "../../../../migrations");
+    // From maxq-test-utils/dist/utils, go to maxq package: ../../../maxq/migrations
+    const migrationsPath = path.resolve(__dirname, "../../../maxq/migrations");
 
     if (!fs.existsSync(migrationsPath)) {
       throw new Error(`Migrations directory not found: ${migrationsPath}`);
@@ -237,12 +237,36 @@ export class TestDatabase {
     const startTime = Date.now();
 
     while (true) {
-      const rows = executeSelect(
+      const rawRows = executeSelect(
         this.db,
         schema,
         queryBuilder,
         params,
-      ) as TResult[];
+      ) as any[];
+
+      // Convert SQLite types to JavaScript types
+      const rows = rawRows.map((row) => {
+        const converted: any = { ...row };
+
+        // Convert INTEGER booleans (0/1) to JavaScript booleans
+        if ("final" in converted && typeof converted.final === "number") {
+          converted.final = converted.final === 1;
+        }
+
+        // Parse JSON TEXT fields
+        const jsonFields = ["fields", "depends_on", "env", "error", "input"];
+        for (const field of jsonFields) {
+          if (field in converted && typeof converted[field] === "string") {
+            try {
+              converted[field] = JSON.parse(converted[field]);
+            } catch {
+              // If parsing fails, leave as string
+            }
+          }
+        }
+
+        return converted as TResult;
+      });
 
       if (condition(rows)) {
         return rows;

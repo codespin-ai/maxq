@@ -142,3 +142,5 @@ vite.config.ts.timestamp-*
 .tests/
 .todos/
 .analysis/
+**/data/*.db
+**/data/*.db-journal

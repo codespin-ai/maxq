@@ -13,16 +13,19 @@
     "lint:fix": "eslint src --ext .ts --fix"
   },
   "dependencies": {
-    "maxq": "file:../maxq"
+    "maxq": "file:../maxq",
+    "maxq-test-utils": "file:../maxq-test-utils"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
     "@types/mocha": "^10.0.10",
     "@types/chai": "^5.2.2",
     "@types/chai-as-promised": "^8.0.1",
+    "@types/sinon": "^17.0.3",
     "mocha": "^11.0.1",
     "chai": "^5.1.2",
     "chai-as-promised": "^8.0.0",
+    "sinon": "^19.0.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
