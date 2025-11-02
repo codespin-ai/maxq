@@ -1,0 +1,32 @@
+{
+  "name": "maxq-test-utils",
+  "version": "0.0.1",
+  "description": "Test utilities for MaxQ workflows",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@tinqerjs/better-sqlite3-adapter": "^0.0.22",
+    "@tinqerjs/tinqer": "^0.0.22",
+    "better-sqlite3": "^11.7.0",
+    "knex": "^3.1.0",
+    "maxq": "file:../maxq"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

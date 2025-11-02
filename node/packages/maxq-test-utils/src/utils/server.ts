@@ -22,7 +22,12 @@ export class TestServer {
   private maxConcurrentSteps: number;
 
   constructor(options: TestServerOptions = {}) {
-    this.port = options.port || 5099;
+    // If port is 0, generate a random port (49152-65535 range)
+    if (options.port === 0) {
+      this.port = 49152 + Math.floor(Math.random() * (65535 - 49152));
+    } else {
+      this.port = options.port || 5099;
+    }
     this.dbPath = options.dbPath || `/tmp/maxq_test_${Date.now()}.db`;
     this.maxRetries = options.maxRetries || 30;
     this.retryDelay = options.retryDelay || 1000;
@@ -73,14 +78,16 @@ export class TestServer {
       };
 
       // Start the server directly
-      // From test-utils/utils/server.ts, go up to lib/test-utils/utils, then to dist root
-      const serverPath = new URL("../../../start-server.js", import.meta.url)
-        .pathname;
+      // From maxq-test-utils/dist/utils, go to maxq package: ../../../maxq/dist/start-server.js
+      const serverPath = new URL(
+        "../../../maxq/dist/start-server.js",
+        import.meta.url,
+      ).pathname;
 
       this.process = spawn("node", [serverPath], {
         env,
         stdio: ["ignore", "pipe", "inherit"], // Show stderr output directly
-        cwd: new URL("../../../", import.meta.url).pathname, // dist directory
+        cwd: new URL("../../../maxq/dist/", import.meta.url).pathname, // maxq dist directory
       });
 
       let serverStarted = false;
@@ -178,7 +185,12 @@ export class TestServer {
       this.flowsRoot = options.flowsRoot;
     }
     if (options.port !== undefined) {
-      this.port = options.port;
+      // Handle port 0 when reconfiguring
+      if (options.port === 0) {
+        this.port = 49152 + Math.floor(Math.random() * (65535 - 49152));
+      } else {
+        this.port = options.port;
+      }
     }
     if (options.dbPath !== undefined) {
       this.dbPath = options.dbPath;

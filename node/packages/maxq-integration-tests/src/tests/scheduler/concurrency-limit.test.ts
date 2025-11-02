@@ -4,7 +4,7 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import { TestDatabase, TestServer, TestHttpClient } from "maxq";
+import { TestDatabase, TestServer, TestHttpClient } from "maxq-test-utils";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";

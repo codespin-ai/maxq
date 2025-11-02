@@ -569,67 +569,11 @@ exit 0
     // Retry the run
     await client.post(`/api/v1/runs/${runId}/retry`, {});
 
-    // Wait for step to be reset to pending
-    await testDb.waitForQuery<
-      { runId: string },
-      {
-        status: string;
-        queued_at: number | null;
-        claimed_at: number | null;
-      }
-    >(
-      (q, p) =>
-        q
-          .from("step")
-          .where((s) => s.run_id === p.runId)
-          .select((s) => ({
-            status: s.status,
-            queued_at: s.queued_at,
-            claimed_at: s.claimed_at,
-          })),
-      { runId },
-      {
-        timeout: 1000,
-        condition: (rows) =>
-          rows.length > 0 &&
-          rows[0]!.status === "pending" &&
-          rows[0]!.queued_at === null,
-      },
-    );
-
-    // Verify queue fields are null after retry (will be set when scheduled again)
-    const retriedSteps = await testDb.waitForQuery<
-      { runId: string },
-      {
-        status: string;
-        queued_at: number | null;
-        claimed_at: number | null;
-        heartbeat_at: number | null;
-        worker_id: string | null;
-      }
-    >(
-      (q, p) =>
-        q
-          .from("step")
-          .where((s) => s.run_id === p.runId)
-          .select((s) => ({
-            status: s.status,
-            queued_at: s.queued_at,
-            claimed_at: s.claimed_at,
-            heartbeat_at: s.heartbeat_at,
-            worker_id: s.worker_id,
-          })),
-      { runId },
-    );
-
-    expect(retriedSteps).to.have.lengthOf(1);
-    expect(retriedSteps[0]!.status).to.equal("pending");
-    expect(retriedSteps[0]!.queued_at).to.equal(null); // Reset
-    expect(retriedSteps[0]!.claimed_at).to.equal(null); // Reset
-    expect(retriedSteps[0]!.heartbeat_at).to.equal(null); // Reset
-    expect(retriedSteps[0]!.worker_id).to.equal(null); // Reset
-
     // Wait for run to complete after retry
+    // NOTE: We don't check the transient "pending with cleared fields" state here
+    // because it exists for microseconds and can't be reliably observed.
+    // Instead, we have unit tests (retry-run.test.ts) that verify the retry logic
+    // properly clears queue fields. This integration test verifies end-to-end behavior.
     await testDb.waitForQuery<
       { runId: string; status: string },
       { status: string }

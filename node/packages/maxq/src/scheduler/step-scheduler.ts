@@ -91,8 +91,10 @@ export function stopScheduler(): void {
  *
  * @param ctx - Data context
  * @param config - Scheduler configuration
+ *
+ * EXPORTED FOR TESTING
  */
-async function pickAndClaimSteps(
+export async function pickAndClaimSteps(
   ctx: DataContext,
   config: SchedulerConfig,
 ): Promise<void> {
@@ -128,13 +130,15 @@ async function pickAndClaimSteps(
   const queryLimit = Math.min(config.batchSize, availableSlots);
 
   // Query for pending steps (up to our available capacity)
+  // IMPORTANT: Only pick steps where queued_at IS NOT NULL
+  // This ensures steps are only executed after they've been properly scheduled
   const allPendingSteps = await executeSelect(
     ctx.db,
     schema,
     (q, p) =>
       q
         .from("step")
-        .where((s) => s.status === "pending")
+        .where((s) => s.status === "pending" && s.queued_at !== null)
         .take(p.queryLimit),
     { queryLimit },
   );
