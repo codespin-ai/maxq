@@ -16,6 +16,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 **ONLY make changes AFTER the user explicitly approves.** When you identify issues or potential improvements, explain them clearly and wait for the user's decision. Do NOT assume what the user wants or make "helpful" changes without permission.
 
+### NEVER USE MULTIEDIT
+
+**NEVER use the MultiEdit tool.** It has caused issues in multiple projects. Always use individual Edit operations instead, even if it means more edits. This ensures better control and prevents unintended changes.
+
+### ALWAYS SAVE TEST OUTPUT TO LOG FILE
+
+**🚨 CRITICAL RULE: ALWAYS pipe test output to a log file for later analysis. 🚨**
+
+Tests in this project take 3+ minutes and cannot be quickly re-run. If you lose the output, you lose valuable debugging information.
+
+**ALWAYS do this:**
+
+```bash
+# Run tests and save output to log file
+npm test 2>&1 | tee .tests/test.log
+
+# Then analyze the log in a separate step
+grep -E "(failing|Error|FAIL)" .tests/test.log
+```
+
+**NEVER do this:**
+
+```bash
+# DON'T run tests without saving output
+npm test 2>&1 | tail -10  # Output is LOST if interrupted!
+```
+
+**Why this matters:**
+
+- Tests take 3+ minutes to run
+- If the command is interrupted, ALL output is lost
+- You cannot re-run quickly to see what failed
+- The `.tests/` directory is gitignored, safe for logs
+
+### USE DEDICATED TOOLS FOR FILE OPERATIONS
+
+**IMPORTANT**: Always use the dedicated tools instead of bash commands for file operations:
+
+- **Read files**: Use the `Read` tool, NOT `cat`, `head`, or `tail`
+- **Edit files**: Use the `Edit` tool, NOT `sed` or `awk`
+- **Create files**: Use the `Write` tool, NOT `cat` with heredoc or `echo` redirection
+- **Search files**: Use the `Grep` tool, NOT `grep` or `rg` commands
+- **Find files**: Use the `Glob` tool, NOT `find` or `ls`
+
+Reserve bash exclusively for actual system commands (git, npm, etc.) that require shell execution.
+
 ### FINISH DISCUSSIONS BEFORE WRITING CODE
 
 **IMPORTANT**: When the user asks a question or you're in the middle of a discussion, DO NOT jump to writing code. Always:
@@ -25,9 +71,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 3. **Get confirmation** - Ensure the user agrees with the approach
 4. **Only then write code** - After the user explicitly asks you to implement
 
-### NEVER USE MULTIEDIT
+### ANSWER QUESTIONS AND STOP
 
-**NEVER use the MultiEdit tool.** It has caused issues in multiple projects. Always use individual Edit operations instead, even if it means more edits. This ensures better control and prevents unintended changes.
+**CRITICAL RULE**: If the user asks you a question - whether as part of a larger text or just the question itself - you MUST:
+
+1. **Answer ONLY that question**
+2. **STOP your response completely**
+3. **DO NOT continue with any other tasks or implementation**
+4. **DO NOT proceed with previous tasks**
+5. **Wait for the user's next instruction**
+
+This applies to ANY question, even if it seems like part of a larger task or discussion.
+
+### NO WORKAROUNDS - STOP AND FIX
+
+**CRITICAL RULE**: When you encounter a bug or issue, do NOT implement workarounds or temporary fixes.
+
+- **NEVER** say "for now, let's..." and implement a hack
+- **NEVER** work around a problem with a different approach just to make progress
+- **NEVER** use escape hatches like `as unknown as X` to bypass type errors
+- **ALWAYS** stop and report the issue clearly
+- **ALWAYS** wait for direction on whether to fix the root cause or defer
+
+When you hit a blocker:
+
+1. Explain exactly what the issue is
+2. Explain why it's happening (root cause)
+3. Stop and ask for direction
+
+Workarounds hide problems and create technical debt. The correct response to a bug is to fix it or explicitly defer it - never to silently work around it.
+
+### NEVER USE AUTOMATED SCRIPTS FOR FIXES
+
+**🚨 CRITICAL RULE: NEVER EVER attempt automated fixes via scripts or mass updates. 🚨**
+
+- **NEVER** create scripts to automate replacements (JS, Python, shell, etc.)
+- **NEVER** use sed, awk, grep, or other text processing tools for bulk changes
+- **NEVER** write code that modifies multiple files automatically
+- **ALWAYS** make changes manually using the Edit tool
+- **Even if there are hundreds of similar changes, do them ONE BY ONE**
+
+Automated scripts break syntax in unpredictable ways and destroy codebases.
 
 ## Session Startup & Task Management
 
@@ -107,6 +191,15 @@ This means: Focus on clean, optimal implementations without worrying about exist
 - **NO DYNAMIC IMPORTS** - Always use static imports, never `await import()` or `import()`
 - Use pure functions with Result types for error handling instead of exceptions
 - Prefer `type` over `interface` (use `interface` only for extensible contracts)
+
+**Functional Programming Rules:**
+
+- **NO MUTABLE VARIABLES** - Only use `const`, never `let` or `var`
+- **NO MUTATIONS** - Never modify objects/arrays, always create new ones
+- **PURE FUNCTIONS ONLY** - No side effects except necessary I/O
+- **EXPLICIT DEPENDENCIES** - All dependencies passed as parameters
+
+If you write mutable code, you MUST immediately rewrite it functionally.
 
 ## Core Architecture Principles
 
@@ -250,7 +343,18 @@ npm run test:client:grep -- "fetch flow"      # Only client tests
 
 ### Git Workflow
 
-**CRITICAL GIT SAFETY RULES**:
+#### NEVER SWITCH BRANCHES WITHOUT PERMISSION
+
+**🚨 CRITICAL RULE: NEVER switch git branches unless the user explicitly tells you to. 🚨**
+
+- **NEVER** run `git checkout <branch>` to switch branches on your own
+- **NEVER** run `git switch <branch>` without explicit user instruction
+- **ALWAYS** stay on the current branch until told otherwise
+- **ALWAYS** complete all work on the current branch before switching
+
+If you need to switch branches for any reason, **ASK THE USER FIRST**.
+
+#### Critical Git Safety Rules
 
 1. **NEVER use `git push --force` or `git push -f`** - Force pushing destroys history
 2. **NEVER use `git reset --hard`** - This permanently destroys local changes and commits
@@ -274,6 +378,150 @@ When the user asks you to commit and push:
 4. Get explicit user confirmation before any `git push`
 
 **VERSION UPDATES**: Whenever committing changes, you MUST increment the patch version in package.json files.
+
+#### NEVER DISCARD UNCOMMITTED WORK
+
+**🚨 CRITICAL RULE: NEVER use commands that permanently delete uncommitted changes. 🚨**
+
+These commands cause **PERMANENT DATA LOSS** that cannot be recovered:
+
+- **NEVER** use `git reset --hard`
+- **NEVER** use `git reset --soft`
+- **NEVER** use `git reset --mixed`
+- **NEVER** use `git reset HEAD`
+- **NEVER** use `git checkout -- .`
+- **NEVER** use `git checkout -- <file>`
+- **NEVER** use `git restore` to discard changes
+- **NEVER** use `git clean -fd`
+
+**Why this matters for AI sessions:**
+
+- Uncommitted work is invisible to future AI sessions
+- Once discarded, changes cannot be recovered
+- AI cannot help fix problems it cannot see
+
+**What to do instead:**
+
+| Situation               | ❌ WRONG                            | ✅ CORRECT                         |
+| ----------------------- | ----------------------------------- | ---------------------------------- |
+| Need to switch branches | `git checkout main` (loses changes) | Commit first, then switch          |
+| Made mistakes           | `git reset --hard`                  | Commit to temp branch, start fresh |
+| Want clean slate        | `git restore .`                     | Commit current state, then revert  |
+| On wrong branch         | `git checkout --`                   | Commit here, then cherry-pick      |
+
+#### NEVER USE GIT STASH
+
+**🚨 CRITICAL RULE: NEVER use git stash - it hides work and causes data loss. 🚨**
+
+- **NEVER** use `git stash`
+- **NEVER** use `git stash push`
+- **NEVER** use `git stash pop`
+- **NEVER** use `git stash apply`
+- **NEVER** use `git stash drop`
+
+**Why stash is dangerous:**
+
+- Stashed changes are invisible to AI sessions
+- Easy to forget what's stashed
+- Stash can be accidentally dropped
+- Causes merge conflicts when applied
+- No clear history of when/why stashed
+
+**What to do instead - Use WIP branches:**
+
+```bash
+# Instead of stash, create a timestamped WIP branch
+git checkout -b wip/feature-name-$(date +%Y%m%d-%H%M%S)
+git add -A
+git commit -m "wip: in-progress work on feature X"
+git push -u origin wip/feature-name-$(date +%Y%m%d-%H%M%S)
+
+# Now switch to other work safely
+git checkout main
+# ... do other work ...
+
+# Return to your WIP later
+git checkout wip/feature-name-20251108-084530
+# Continue working...
+```
+
+**Benefits of WIP branches over stash:**
+
+- ✅ Work is visible in git history
+- ✅ Work is backed up on remote
+- ✅ AI can see the work in future sessions
+- ✅ Can have multiple WIP branches
+- ✅ Clear timestamps show when work was done
+
+#### Safe Branch Switching
+
+**ALWAYS commit before switching branches:**
+
+```bash
+# Check current status
+git status
+
+# If there are changes, commit them first
+git add -A
+git commit -m "wip: current state before switching"
+
+# NOW safe to switch
+git checkout other-branch
+```
+
+**If you accidentally started work on wrong branch:**
+
+```bash
+# DON'T use git reset or git checkout --
+# Instead, commit the work here
+git add -A
+git commit -m "wip: work started on wrong branch"
+
+# Create correct branch from current state
+git checkout -b correct-branch-name
+
+# Previous branch will still have the commit
+# You can cherry-pick it or just continue on new branch
+```
+
+#### Recovery from Mistakes
+
+If you realize you made a mistake AFTER committing:
+
+```bash
+# ✅ CORRECT: Create a fix commit
+git commit -m "fix: correct the mistake from previous commit"
+
+# ✅ CORRECT: Revert the bad commit
+git revert HEAD
+
+# ❌ WRONG: Try to undo with reset
+git reset --hard HEAD~1  # NEVER DO THIS - loses history
+```
+
+**If you accidentally committed to main:**
+
+```bash
+# DON'T panic or use git reset
+# Just create a feature branch from current position
+git checkout -b feat/your-feature-name
+
+# Push the branch
+git push -u origin feat/your-feature-name
+
+# When merged, it will fast-forward (no conflicts)
+```
+
+#### Pull Requests
+
+**NEVER create pull requests using `gh pr create` or similar CLI commands.**
+
+The user will create all pull requests manually through the GitHub web interface. Your job is to:
+
+1. Create feature branches
+2. Commit changes
+3. Push branches to remote
+4. **STOP** - Do not create PRs
 
 ## Code Patterns
 
@@ -447,36 +695,40 @@ const run = result.data;
 - Step location: `{FLOWS_ROOT}/{flowName}/steps/{stepName}/step.sh`
 - MaxQ spawns processes with environment variables
 
-## Testing & Development Optimization
+## Working Directories
 
-### Test Output Strategy
+**IMPORTANT**: Never create temporary files in the project root or package directories. Use dedicated gitignored directories for different purposes.
 
-**For full test suites (3+ minutes)**, use `tee` to display output AND save to file:
+**Note:** All four directories (`.tests/`, `.analysis/`, `.todos/`, `.temp/`) are gitignored for safe local use.
+
+### .tests/ Directory (Test Output Capture)
+
+**Purpose:** Save test run output for analysis without re-running tests.
+
+See **ALWAYS SAVE TEST OUTPUT TO LOG FILE** in Critical Guidelines for the mandatory rule.
 
 ```bash
-# Create .tests directory if it doesn't exist (gitignored)
+# Create directory (gitignored)
 mkdir -p .tests
 
-# Run full test suite with tee - shows output to user AND saves to file
-npm test | tee .tests/run-$(date +%s).txt
+# Use timestamped filenames for multiple runs
+npm test 2>&1 | tee .tests/run-$(date +%s).txt
 
-# Then analyze saved output without re-running tests:
+# Analyze saved output without re-running tests:
 grep "failing" .tests/run-*.txt
 tail -50 .tests/run-*.txt
 grep -A10 "specific test name" .tests/run-*.txt
 ```
 
-**NEVER use plain redirection (`>` or `2>&1`)** - use `tee` for real-time output visibility.
+### .analysis/ Directory (Research & Documentation)
 
-### Analysis Working Directory
-
-**For long-running analysis, research, or documentation tasks**, use `.analysis/` directory:
+**Purpose:** Keep analysis artifacts separate from source code.
 
 ```bash
-# Create .analysis directory if it doesn't exist (gitignored)
+# Create directory (gitignored)
 mkdir -p .analysis
 
-# Examples of analysis work:
+# Use for:
 # - Code complexity reports
 # - API documentation generation
 # - Dependency analysis
@@ -486,9 +738,33 @@ mkdir -p .analysis
 # - Security audit reports
 ```
 
-Benefits: Keeps analysis artifacts separate from source code, allows iterative work without cluttering repository.
+### .temp/ Directory (Temporary Scripts & Debugging)
 
-### Build & Lint Workflow
+**Purpose:** Store temporary scripts and one-off debugging files.
+
+```bash
+# Create directory (gitignored)
+mkdir -p .temp
+
+# Use for:
+# - Quick test scripts
+# - Debug output files
+# - One-off data transformations
+# - Temporary TypeScript/JavaScript for testing
+
+# NEVER use /tmp or system temp directories
+# .temp keeps files visible and within the project
+```
+
+**Key Rule:** ALWAYS use `.temp/` instead of `/tmp/` or system temp directories. This keeps temporary work visible and accessible within the project.
+
+### .todos/ Directory (Persistent Task Tracking)
+
+**Purpose:** Track multi-step tasks across conversation sessions.
+
+See **Task Management with .todos Directory** in Session Startup section for detailed usage.
+
+## Build & Lint Workflow
 
 **ALWAYS follow this sequence:**
 
