@@ -1,55 +1,19 @@
 version: "3.8"
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: maxq
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - maxq-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   maxq:
     build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       NODE_ENV: development
       MAXQ_SERVER_PORT: 5003
-      MAXQ_DB_HOST: postgres
-      MAXQ_DB_PORT: 5432
-      MAXQ_DB_NAME: maxq
-      MAXQ_DB_USER: postgres
-      MAXQ_DB_PASSWORD: postgres
-      FLOWS_ROOT: /app/flows
-      RUN_MIGRATIONS: "true"
       LOG_LEVEL: debug
     ports:
       - "5003:5003"
-    networks:
-      - maxq-network
     volumes:
-      # Mount source for development hot-reload
-      - ./node/packages:/app/node/packages:ro
-      - ./database:/app/database:ro
+      # Persist SQLite database
+      - maxq_data:/app/data
       # Mount flows directory
       - ./flows:/app/flows:ro
-    command: npm start
 
 volumes:
-  postgres_data:
-
-networks:
-  maxq-network:
-    driver: bridge
+  maxq_data:

@@ -9,14 +9,6 @@
     "clean": "./scripts/clean.sh",
     "start": "./scripts/start.sh",
     "test": "cd node/packages/maxq-integration-tests && npm test",
-    "migrate:all": "./scripts/db-all.sh migrate:latest",
-    "migrate:all:rollback": "./scripts/db-all.sh migrate:rollback",
-    "migrate:all:status": "./scripts/db-all.sh migrate:status",
-    "migrate:maxq:make": "knex migrate:make --knexfile database/maxq/knexfile.js",
-    "migrate:maxq:latest": "knex migrate:latest --knexfile database/maxq/knexfile.js",
-    "migrate:maxq:rollback": "knex migrate:rollback --knexfile database/maxq/knexfile.js",
-    "migrate:maxq:status": "knex migrate:status --knexfile database/maxq/knexfile.js",
-    "db:dump-schema": "./scripts/dump-db-schema.sh",
     "test:grep": "cd node/packages/maxq-integration-tests && npm run test:grep"
   },
   "devDependencies": {

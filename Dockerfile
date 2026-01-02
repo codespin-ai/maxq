@@ -1,64 +1,52 @@
 # Build stage
 FROM node:24-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache bash
+# Install build dependencies (bash for scripts, python/make for native modules like better-sqlite3)
+RUN apk add --no-cache bash python3 make g++
 
 WORKDIR /app
 
-# Copy package files
+# Copy root package files
 COPY package*.json ./
-COPY node/package*.json ./node/
-COPY node/packages/maxq-core/package*.json ./node/packages/maxq-core/
-COPY node/packages/maxq-logger/package*.json ./node/packages/maxq-logger/
-COPY node/packages/maxq-db/package*.json ./node/packages/maxq-db/
-COPY node/packages/maxq-server/package*.json ./node/packages/maxq-server/
 
-# Copy build scripts from scripts directory
-COPY scripts/ ./scripts/
+# Copy maxq package files (only production package, not test packages)
+COPY node/packages/maxq/package*.json ./node/packages/maxq/
 
 # Copy TypeScript config
 COPY tsconfig.base.json ./
 
-# Copy source code
-COPY knexfile.js ./
-COPY node ./node
-COPY database ./database
+# Install dependencies
+RUN npm install --workspaces=false && \
+    cd node/packages/maxq && npm install
 
-# Install dependencies and build
-RUN chmod +x scripts/build.sh scripts/clean.sh scripts/format-all.sh && \
-    ./scripts/build.sh --install
+# Copy maxq source code
+COPY node/packages/maxq/src ./node/packages/maxq/src
+COPY node/packages/maxq/migrations ./node/packages/maxq/migrations
+COPY node/packages/maxq/tsconfig.json ./node/packages/maxq/
 
-# Runtime stage - Ubuntu minimal
-FROM ubuntu:24.04 AS runtime
+# Build maxq package
+RUN cd node/packages/maxq && npm run build
 
-# Install Node.js 24 and minimal dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates && \
-    curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Runtime stage - Alpine for smaller image
+FROM node:24-alpine AS runtime
+
+# Install bash for shell scripts in flows
+RUN apk add --no-cache bash
 
 # Create non-root user
-RUN useradd -r -u 1001 -g root -s /bin/bash maxq && \
-    mkdir -p /home/maxq && \
-    chown -R maxq:root /home/maxq
+RUN addgroup -g 1001 -S maxq && \
+    adduser -u 1001 -S maxq -G maxq
 
 WORKDIR /app
 
 # Copy built application from builder stage
-COPY --from=builder --chown=maxq:root /app/node ./node
-COPY --from=builder --chown=maxq:root /app/database ./database
-COPY --from=builder --chown=maxq:root /app/package*.json ./
-COPY --from=builder --chown=maxq:root /app/node_modules ./node_modules
-COPY --from=builder --chown=maxq:root /app/knexfile.js ./
+COPY --from=builder --chown=maxq:maxq /app/node/packages/maxq/dist ./dist
+COPY --from=builder --chown=maxq:maxq /app/node/packages/maxq/migrations ./migrations
+COPY --from=builder --chown=maxq:maxq /app/node/packages/maxq/package*.json ./
+COPY --from=builder --chown=maxq:maxq /app/node/packages/maxq/node_modules ./node_modules
 
-# Copy start script and entrypoint
-COPY --chown=maxq:root scripts/start.sh scripts/docker-entrypoint.sh ./
-RUN chmod +x start.sh docker-entrypoint.sh
+# Create directories for data and flows
+RUN mkdir -p /app/data /app/flows && chown -R maxq:maxq /app/data /app/flows
 
 # Switch to non-root user
 USER maxq
@@ -66,15 +54,14 @@ USER maxq
 # Expose REST API server port
 EXPOSE 5003
 
-# Set default environment variables (non-sensitive only)
+# Set default environment variables
 ENV NODE_ENV=production \
     MAXQ_SERVER_PORT=5003 \
     LOG_LEVEL=info
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:' + (process.env.MAXQ_SERVER_PORT || 5003) + '/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"
 
-# Use entrypoint for automatic setup
-ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["./start.sh"]
+# Default command - run the CLI which handles migrations and starts server
+CMD ["node", "dist/cli.js", "--data-dir", "/app/data", "--flows", "/app/flows"]

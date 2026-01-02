@@ -12,7 +12,7 @@ if [[ -f .env ]]; then
   export $(cat .env | grep -v '^#' | xargs)
 fi
 
-# Start the server
+# Start the server via CLI (handles migrations automatically)
 echo "Starting MaxQ server..."
-cd node/packages/maxq-server
+cd node/packages/maxq
 npm start

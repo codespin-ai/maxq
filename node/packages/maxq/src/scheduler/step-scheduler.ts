@@ -210,7 +210,7 @@ export async function pickAndClaimSteps(
     const runId = stepRow.step.run_id;
     const stageId = stepRow.step.stage_id;
     const stepName = stepRow.step.name;
-    // Parse depends_on - SQLite returns JSON as string, PostgreSQL returns as array
+    // Parse depends_on - SQLite returns JSON as string
     const dependsOnRaw = stepRow.step.depends_on;
     const dependsOn =
       typeof dependsOnRaw === "string"
@@ -218,7 +218,7 @@ export async function pickAndClaimSteps(
         : (dependsOnRaw as unknown as string[]) || [];
     const flowName = stepRow.run.flow_name;
     const maxRetries = stepRow.step.max_retries;
-    // Parse env - SQLite returns JSON as string, PostgreSQL returns as object
+    // Parse env - SQLite returns JSON as string
     const envRaw = stepRow.step.env;
     const env = (
       envRaw ? (typeof envRaw === "string" ? JSON.parse(envRaw) : envRaw) : null
@@ -547,7 +547,7 @@ async function cascadeFailure(
       }
 
       // Check if this step depends on any failed step
-      // Parse depends_on - SQLite returns JSON as string, PostgreSQL returns as array
+      // Parse depends_on - SQLite returns JSON as string
       const dependsOnRaw = step.depends_on;
       const dependsOn: string[] =
         typeof dependsOnRaw === "string"
