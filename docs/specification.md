@@ -27,11 +27,11 @@ MaxQ is a lightweight DAG-based workflow orchestration engine designed for shell
 
 ### 1.2 Design Philosophy
 
-- **Minimal Dependencies**: Only PostgreSQL required
+- **Zero External Dependencies**: Embedded SQLite database, no external services required
 - **Language Agnostic**: Flows and steps are shell scripts that can invoke any language
 - **Filesystem-Based**: Flows discovered from directory structure, not API registration
 - **HTTP Protocol**: All communication via REST API with JSON
-- **Stateful**: PostgreSQL is the source of truth for all state
+- **Stateful**: SQLite is the source of truth for all state
 - **DAG Execution**: Steps have dependencies and execute in topological order
 - **Callback Pattern**: Flows are called back when stages complete
 
@@ -159,7 +159,7 @@ A **step** is an individual unit of work within a stage.
 │  └─────────────┘  └──────────────┘  └───────────┘ │
 └─────────────────────────────────────────────────────┘
                          │
-                         ├── PostgreSQL (state storage)
+                         ├── SQLite (embedded state storage)
                          │
                          ├── Spawns: flow.sh processes
                          │
@@ -190,9 +190,9 @@ A **step** is an individual unit of work within a stage.
 
 ### 3.3 Data Storage
 
-- **PostgreSQL**: Single source of truth for all state
+- **SQLite**: Single source of truth for all state (embedded, no external database)
 - **No Queue System**: MaxQ directly spawns processes
-- **No External Storage**: All step data stored as fields in database (JSONB)
+- **No External Storage**: All step data stored as fields in database (JSON)
 
 ---
 
@@ -1515,14 +1515,14 @@ Environment variables for MaxQ server:
 ```bash
 # Required
 MAXQ_FLOWS_ROOT=/path/to/flows        # Root directory for flow discovery
-MAXQ_DATABASE_URL=postgresql://...    # PostgreSQL connection string
 
 # Optional
-MAXQ_HOST=0.0.0.0                     # HTTP server host (default: 0.0.0.0)
-MAXQ_PORT=3000                        # HTTP server port (default: 3000)
-MAXQ_WATCH_FLOWS=false                # Watch filesystem for changes (default: false)
-MAXQ_LOG_LEVEL=info                   # Logging level (default: info)
+MAXQ_SQLITE_PATH=/path/to/maxq.db     # SQLite database path (default: ./data/maxq.db)
+MAXQ_SERVER_PORT=5003                 # HTTP server port (default: 5003)
+MAXQ_SCHEDULER_INTERVAL_MS=200        # Scheduler polling interval (default: 200ms)
+MAXQ_SCHEDULER_BATCH_SIZE=10          # Steps per scheduler iteration (default: 10)
 MAXQ_MAX_CONCURRENT_STEPS=10          # Max parallel step executions (default: 10)
+LOG_LEVEL=info                        # Logging level (default: info)
 ```
 
 ### 7.2 Flow Environment Variables
@@ -2233,7 +2233,7 @@ If a step depends on a failed step:
 | Orchestration      | Callback pattern                | Linear code execution                  |
 | Step execution     | Separate processes via HTTP     | Python functions                       |
 | Flow definition    | Filesystem-based                | Code-based with decorators             |
-| Dependencies       | PostgreSQL only                 | Requires cloud services or local setup |
+| Dependencies       | Zero (embedded SQLite)          | Requires cloud services or local setup |
 | Parallel execution | Flow generates multiple IDs     | `foreach` construct                    |
 | Data passing       | Fields (JSON in database)       | Artifacts (object storage)             |
 | Stage concept      | First-class (with `final` flag) | Not present                            |
@@ -2272,13 +2272,13 @@ def process(self):
 
 **Differences:**
 
-| Feature          | MaxQ                       | Prefect                 |
-| ---------------- | -------------------------- | ----------------------- |
-| Language         | Shell scripts              | Python                  |
-| Architecture     | Simple server + PostgreSQL | Agent-based + Cloud     |
-| Flow definition  | Filesystem discovery       | Python decorators       |
-| State management | PostgreSQL                 | Prefect Cloud or server |
-| Complexity       | Minimal                    | Moderate to high        |
+| Feature          | MaxQ                   | Prefect                 |
+| ---------------- | ---------------------- | ----------------------- |
+| Language         | Shell scripts          | Python                  |
+| Architecture     | Simple server + SQLite | Agent-based + Cloud     |
+| Flow definition  | Filesystem discovery   | Python decorators       |
+| State management | SQLite (embedded)      | Prefect Cloud or server |
+| Complexity       | Minimal                | Moderate to high        |
 
 ### 11.3 Argo Workflows
 
@@ -2290,12 +2290,12 @@ def process(self):
 
 **Differences:**
 
-| Feature       | MaxQ                        | Argo Workflows           |
-| ------------- | --------------------------- | ------------------------ |
-| Platform      | Any (just needs PostgreSQL) | Kubernetes only          |
-| Definition    | Shell scripts               | YAML manifests           |
-| Execution     | Native processes            | Kubernetes pods          |
-| Stage concept | Built-in                    | Must be modeled manually |
+| Feature       | MaxQ                    | Argo Workflows           |
+| ------------- | ----------------------- | ------------------------ |
+| Platform      | Any (zero dependencies) | Kubernetes only          |
+| Definition    | Shell scripts           | YAML manifests           |
+| Execution     | Native processes        | Kubernetes pods          |
+| Stage concept | Built-in                | Must be modeled manually |
 
 ### 11.4 Apache Airflow
 
@@ -2307,13 +2307,13 @@ def process(self):
 
 **Differences:**
 
-| Feature         | MaxQ                | Airflow                             |
-| --------------- | ------------------- | ----------------------------------- |
-| Scheduling      | On-demand (via API) | Cron-based                          |
-| Definition      | Shell scripts       | Python DAGs                         |
-| Complexity      | Minimal             | High                                |
-| Infrastructure  | PostgreSQL only     | Redis, Celery, Scheduler, Webserver |
-| Stage callbacks | Built-in            | Not present                         |
+| Feature         | MaxQ                   | Airflow                             |
+| --------------- | ---------------------- | ----------------------------------- |
+| Scheduling      | On-demand (via API)    | Cron-based                          |
+| Definition      | Shell scripts          | Python DAGs                         |
+| Complexity      | Minimal                | High                                |
+| Infrastructure  | Zero (embedded SQLite) | Redis, Celery, Scheduler, Webserver |
+| Stage callbacks | Built-in               | Not present                         |
 
 ### 11.5 Temporal
 
@@ -2343,7 +2343,7 @@ A conforming MaxQ implementation MUST:
 2. **Validate** flow.sh and step.sh files exist and are executable
 3. **Spawn processes** for flows and steps with specified environment variables
 4. **Implement HTTP API** as specified in section 6
-5. **Use PostgreSQL** for state storage with schema from section 8
+5. **Use SQLite** for state storage with schema from section 8
 6. **Handle DAG dependencies** and execute steps in correct order
 7. **Support parallel execution** (flows generate multiple step IDs with same name)
 8. **Validate step IDs** (alphanumeric + hyphens + underscores, unique within run)
@@ -2430,9 +2430,9 @@ Implementations SHOULD:
 
 ### 14.3 Database Security
 
-- Use encrypted connections to PostgreSQL
-- Apply principle of least privilege for database user
-- Regular backups
+- SQLite database file should have appropriate file permissions
+- Regular backups of database file
+- Consider encrypting database file in production (SQLCipher)
 
 ### 14.4 Secrets Management
 

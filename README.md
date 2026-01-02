@@ -4,15 +4,15 @@ A lightweight DAG-based workflow orchestration engine for shell-based workflows.
 
 ## Overview
 
-MaxQ orchestrates multi-stage workflows using shell scripts and HTTP/JSON communication. Workflows are discovered from the filesystem, executed as processes, and coordinated through a PostgreSQL-backed scheduler.
+MaxQ orchestrates multi-stage workflows using shell scripts and HTTP/JSON communication. Workflows are discovered from the filesystem, executed as processes, and coordinated through an SQLite-backed scheduler.
 
 **Design Philosophy:**
 
 - **Filesystem-Based**: Flows discovered from directory structure, not API registration
 - **Language Agnostic**: Shell scripts can invoke any language or tool
-- **Minimal Dependencies**: Only PostgreSQL required
+- **Zero External Dependencies**: Embedded SQLite database, no external services required
 - **HTTP Protocol**: All communication via REST API with JSON
-- **Stateful**: PostgreSQL is the source of truth for all state
+- **Stateful**: SQLite is the source of truth for all state
 - **DAG Execution**: Steps have dependencies and execute in topological order
 
 ## Core Concepts
@@ -35,7 +35,6 @@ An individual unit of work within a stage. Steps are shell scripts that execute 
 
 ## Prerequisites
 
-- **PostgreSQL** 12+ (or SQLite for development)
 - **Node.js** 18+
 - **Bash** 4.0+
 - Standard Unix utilities: `curl`, `jq`
@@ -45,15 +44,14 @@ An individual unit of work within a stage. Steps are shell scripts that execute 
 ```bash
 # Required
 MAXQ_FLOWS_ROOT=/path/to/flows          # Directory containing workflow definitions
-MAXQ_DATABASE_URL=postgresql://...       # PostgreSQL connection string
-# OR for development:
-MAXQ_SQLITE_PATH=/path/to/maxq.db       # SQLite database path
 
 # Optional
-MAXQ_PORT=3000                          # HTTP server port (default: 3000)
-MAXQ_HOST=0.0.0.0                       # HTTP server host (default: 0.0.0.0)
+MAXQ_SQLITE_PATH=/path/to/maxq.db       # SQLite database path (default: ./data/maxq.db)
+MAXQ_SERVER_PORT=5003                   # HTTP server port (default: 5003)
 MAXQ_SCHEDULER_INTERVAL_MS=200          # Scheduler polling interval (default: 200ms)
 MAXQ_SCHEDULER_BATCH_SIZE=10            # Steps per scheduler iteration (default: 10)
+MAXQ_MAX_CONCURRENT_STEPS=10            # Max parallel step execution (default: 10)
+LOG_LEVEL=info                          # Log level: debug, info, warn, error
 ```
 
 ## Architecture
@@ -63,12 +61,10 @@ MAXQ_SCHEDULER_BATCH_SIZE=10            # Steps per scheduler iteration (default
 │                    MaxQ Server                      │
 │                                                     │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────┐ │
-│  │   HTTP API  │  │  Scheduler   │  │  Database │ │
-│  │             │  │              │  │  Client   │ │
+│  │   HTTP API  │  │  Scheduler   │  │  SQLite   │ │
+│  │             │  │              │  │  Database │ │
 │  └─────────────┘  └──────────────┘  └───────────┘ │
 └─────────────────────────────────────────────────────┘
-                         │
-                         ├── PostgreSQL/SQLite (state storage)
                          │
                          ├── Spawns: flow.sh processes
                          │
@@ -77,7 +73,7 @@ MAXQ_SCHEDULER_BATCH_SIZE=10            # Steps per scheduler iteration (default
 
 **Execution Flow:**
 
-1. User triggers flow via `POST /api/v1/flows/{flowName}/runs`
+1. User triggers flow via `POST /api/v1/runs`
 2. MaxQ creates run record and spawns `flow.sh` process
 3. Flow schedules a stage by posting step definitions to API
 4. Scheduler claims pending steps and spawns `step.sh` processes
@@ -158,9 +154,9 @@ exit 0  # Exit code determines success/failure
 ### Trigger the Workflow
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/flows/hello_world/runs \
+curl -X POST http://localhost:5003/api/v1/runs \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"flowName": "hello_world"}'
 ```
 
 ## Quick Start
@@ -173,16 +169,7 @@ git clone https://github.com/codespin-ai/maxq.git
 cd maxq
 ./scripts/build.sh
 
-# Set up environment
-export MAXQ_FLOWS_ROOT=/path/to/your/flows
-export MAXQ_DATABASE_URL=postgresql://user:pass@localhost/maxq
-# OR for development:
-# export MAXQ_SQLITE_PATH=./maxq.db
-
-# Run database migrations
-npm run migrate:maxq:latest
-
-# Start server
+# Start server (creates SQLite database automatically)
 ./scripts/start.sh
 ```
 
@@ -192,45 +179,26 @@ npm run migrate:maxq:latest
 # Build image
 ./scripts/docker-build.sh
 
-# Run with PostgreSQL
-docker run -p 3000:3000 \
-  -e MAXQ_DATABASE_URL=postgresql://... \
-  -e MAXQ_FLOWS_ROOT=/flows \
-  -v /path/to/flows:/flows \
+# Run
+docker run -p 5003:5003 \
+  -v /path/to/flows:/app/flows \
+  -v /path/to/data:/app/data \
   maxq:latest
 
-# Run with SQLite (development)
-docker run -p 3000:3000 \
-  -e MAXQ_SQLITE_PATH=/data/maxq.db \
-  -e MAXQ_FLOWS_ROOT=/flows \
-  -v /path/to/flows:/flows \
-  -v /path/to/data:/data \
-  maxq:latest
+# Test the image
+./scripts/docker-test.sh
 ```
 
 ## Development Commands
 
 ```bash
-./scripts/install-deps.sh           # Install dependencies for all packages
-./scripts/install-deps.sh --force   # Force reinstall all dependencies
-./scripts/build.sh                  # Build all packages (includes dependency installation)
-./scripts/build.sh --install        # Build with forced dependency reinstall
-./scripts/build.sh --migrate        # Build + run database migrations
+./scripts/build.sh                  # Build all packages
 ./scripts/clean.sh                  # Remove build artifacts and node_modules
 ./scripts/lint-all.sh               # Run ESLint
 ./scripts/lint-all.sh --fix         # Run ESLint with auto-fix
 ./scripts/format-all.sh             # Format with Prettier
 npm test                            # Run all tests
 npm run test:grep -- "pattern"      # Search for specific tests
-```
-
-### Database Commands
-
-```bash
-npm run migrate:maxq:status         # Check migration status
-npm run migrate:maxq:make name      # Create new migration
-npm run migrate:maxq:latest         # Run pending migrations
-npm run migrate:maxq:rollback       # Rollback last migration
 ```
 
 ## Key Features
@@ -310,13 +278,14 @@ Retry resets incomplete work to pending and resumes execution.
 
 ## HTTP API
 
-Base URL: `http://localhost:3000/api/v1`
+Base URL: `http://localhost:5003/api/v1`
 
 ### Key Endpoints
 
 ```bash
 # Trigger flow
-POST /flows/{flowName}/runs
+POST /runs
+Body: {"flowName": "my_flow"}
 
 # Get run status
 GET /runs/{runId}
@@ -353,7 +322,7 @@ See [docs/specification.md](docs/specification.md) for complete API documentatio
 MaxQ differs from systems like Metaflow, Prefect, and Argo:
 
 - **Language**: Shell scripts instead of Python decorators or YAML
-- **Infrastructure**: Only PostgreSQL required (no Kubernetes, Redis, Celery)
+- **Infrastructure**: Zero external dependencies (embedded SQLite)
 - **Flow Definition**: Filesystem discovery instead of code registration
 - **Orchestration**: Callback pattern with explicit stages
 - **Execution**: Native processes instead of containers or Python functions

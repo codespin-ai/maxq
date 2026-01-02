@@ -1,5 +1,5 @@
 /**
- * Database layer for MaxQ with PostgreSQL and SQLite support
+ * Database layer for MaxQ with SQLite
  */
 
 export * from "./types.js";
