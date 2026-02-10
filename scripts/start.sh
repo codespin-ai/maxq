@@ -1,18 +1,17 @@
-#!/usr/bin/env bash
-# -------------------------------------------------------------------
-# start.sh – start the MaxQ server
-# -------------------------------------------------------------------
-set -euo pipefail
+#!/bin/bash
 
-# Change to the project root directory
-cd "$(dirname "$0")/.."
+# Start script for MaxQ server
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Load environment variables if .env exists
-if [[ -f .env ]]; then
-  export $(cat .env | grep -v '^#' | xargs)
+# Check if we're in Docker (scripts in /app/scripts)
+if [ -f "/app/node/packages/maxq/dist/bin/server.js" ]; then
+    cd /app/node/packages/maxq
+elif [ -d "$SCRIPT_DIR/../node/packages/maxq" ]; then
+    cd "$SCRIPT_DIR/../node/packages/maxq"
+else
+    echo "Error: Cannot find maxq package"
+    exit 1
 fi
 
-# Start the server via CLI (handles migrations automatically)
-echo "Starting MaxQ server..."
-cd node/packages/maxq
-npm start
+# Start the server
+node dist/bin/server.js

@@ -22,9 +22,13 @@ export async function runMigrations(sqlitePath: string): Promise<void> {
   if (process.env.MAXQ_MIGRATIONS_DIR) {
     migrationsDir = process.env.MAXQ_MIGRATIONS_DIR;
   } else {
-    // Migrations are always at package root
-    // __dirname is dist/lib/db, so ../../../migrations is at package root
-    migrationsDir = resolve(__dirname, "../../../migrations");
+    // Migrations are at database/maxq/migrations in the project root
+    // __dirname is dist/lib/db, so ../../../../../../database/maxq/migrations
+    // goes up through: dist/ → maxq/ → packages/ → node/ → project root → database/maxq/migrations
+    migrationsDir = resolve(
+      __dirname,
+      "../../../../../../database/maxq/migrations",
+    );
 
     if (process.env.DEBUG_MIGRATIONS) {
       console.log(`Using migrations directory: ${migrationsDir}`);

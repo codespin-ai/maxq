@@ -23,10 +23,22 @@ export class TestDatabase {
   private logger: Logger;
   private dbPath: string;
 
+  private testDir: string;
+
   constructor(config: TestDatabaseConfig = {}) {
-    // Use a unique temporary file for each test database instance
-    this.dbPath =
-      config.dbPath || path.join("/tmp", `maxq_test_${Date.now()}.db`);
+    // Use .tests/ directory at project root for test databases
+    if (config.dbPath) {
+      this.dbPath = config.dbPath;
+      this.testDir = path.dirname(config.dbPath);
+    } else {
+      this.testDir = path.resolve(
+        __dirname,
+        "../../../../../.tests",
+        `test-${Date.now()}`,
+      );
+      fs.mkdirSync(this.testDir, { recursive: true });
+      this.dbPath = path.join(this.testDir, "maxq.db");
+    }
     this.logger = config.logger || consoleLogger;
   }
 
@@ -53,8 +65,12 @@ export class TestDatabase {
     this.db.pragma("foreign_keys = ON");
 
     // Run all migrations from scratch
-    // From maxq-test-utils/dist/utils, go to maxq package: ../../../maxq/migrations
-    const migrationsPath = path.resolve(__dirname, "../../../maxq/migrations");
+    // From maxq-test-utils/dist/utils, go to project root: ../../../../../database/maxq/migrations
+    // up through: dist/ → maxq-test-utils/ → packages/ → node/ → project root → database/maxq/migrations
+    const migrationsPath = path.resolve(
+      __dirname,
+      "../../../../../database/maxq/migrations",
+    );
 
     if (!fs.existsSync(migrationsPath)) {
       throw new Error(`Migrations directory not found: ${migrationsPath}`);
@@ -104,9 +120,9 @@ export class TestDatabase {
       this.db.close();
       this.db = null;
     }
-    // Delete the database file
-    if (fs.existsSync(this.dbPath)) {
-      fs.unlinkSync(this.dbPath);
+    // Delete the test directory and all files in it
+    if (fs.existsSync(this.testDir)) {
+      fs.rmSync(this.testDir, { recursive: true, force: true });
     }
   }
 

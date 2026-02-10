@@ -6,7 +6,7 @@ import {
 } from "maxq-test-utils";
 import type { PaginatedResult, Run } from "maxq";
 import { mkdir, writeFile, chmod } from "fs/promises";
-import { join } from "path";
+import { join, dirname } from "path";
 
 // Test configuration
 export const testDb = new TestDatabase({
@@ -23,9 +23,9 @@ export const defaultFlowsRoot = join(packageRoot, "test-flows");
 
 export const testServer = new TestServer({
   port: 5099,
-  dbPath: testDb.getDbPath(), // Use the same database file as testDb
+  dataDir: dirname(testDb.getDbPath()),
   logger: testLogger,
-  flowsRoot: defaultFlowsRoot, // Explicitly set flows root
+  flowsRoot: defaultFlowsRoot,
 });
 export const client = new TestHttpClient(`http://localhost:5099`);
 

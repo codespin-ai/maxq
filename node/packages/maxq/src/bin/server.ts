@@ -5,20 +5,22 @@
 
 import express from "express";
 import { config } from "dotenv";
-import { createLogger } from "./lib/logger/index.js";
-import { createConnection, closeConnection } from "./lib/db/index.js";
-import { createRunsRouter } from "./routes/runs.js";
-import type { DataContext } from "./domain/data-context.js";
-import type { ExecutorConfig } from "./executor/types.js";
-import { StepProcessRegistry } from "./executor/process-registry.js";
-import { performStartupCleanup } from "./startup/cleanup.js";
-import { startScheduler, stopScheduler } from "./scheduler/step-scheduler.js";
+import { createLogger } from "../lib/logger/index.js";
+import { createConnection, closeConnection } from "../lib/db/index.js";
+import { createRunsRouter } from "../routes/runs.js";
+import type { DataContext } from "../domain/data-context.js";
+import type { ExecutorConfig } from "../executor/types.js";
+import { StepProcessRegistry } from "../executor/process-registry.js";
+import { performStartupCleanup } from "../startup/cleanup.js";
+import { startScheduler, stopScheduler } from "../scheduler/step-scheduler.js";
+import { join } from "path";
 
 // Load environment variables
 config();
 
 const logger = createLogger("maxq-server");
 const app = express();
+const host = process.env.MAXQ_SERVER_HOST || "127.0.0.1";
 const port = process.env.MAXQ_SERVER_PORT || process.env.PORT || 5003;
 
 // Request parsing
@@ -36,7 +38,8 @@ app.use((req, _res, next) => {
 });
 
 // Initialize database connection
-const sqlitePath = process.env.MAXQ_SQLITE_PATH || "./data/maxq.db";
+const dataDir = process.env.MAXQ_DATA_DIR || "./data";
+const sqlitePath = join(dataDir, "maxq.db");
 logger.info("Connecting to SQLite database", { path: sqlitePath });
 const db = createConnection(sqlitePath);
 
@@ -135,8 +138,8 @@ async function start(): Promise<void> {
     await performStartupCleanup(db, abortGraceMs);
 
     // Start listening
-    app.listen(port, () => {
-      logger.info("MaxQ server running", { port });
+    app.listen(Number(port), host, () => {
+      logger.info("MaxQ server running", { host, port });
     });
 
     // Start step scheduler

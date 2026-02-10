@@ -11,12 +11,8 @@ echo "=== Cleaning MaxQ ==="
 
 # Define packages
 PACKAGES=(
-  "maxq-core"
-  "maxq-logger"
-  "maxq-db"
+  "maxq"
   "maxq-test-utils"
-  "maxq-server"
-  "maxq-client"
   "maxq-integration-tests"
 )
 

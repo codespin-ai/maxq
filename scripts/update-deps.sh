@@ -24,11 +24,11 @@ update_package_deps() {
             const pkg = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
             const deps = Object.keys(pkg.dependencies || {}).filter(dep => {
                 const version = pkg.dependencies[dep];
-                // Skip local dependencies (file:, link:, workspace:, @codespin/ packages)
+                // Skip local dependencies (file:, link:, workspace:, @agilehead/ packages)
                 return !version.startsWith('file:') &&
                        !version.startsWith('link:') &&
                        !version.startsWith('workspace:') &&
-                       !dep.startsWith('@codespin/') &&
+                       !dep.startsWith('@agilehead/') &&
                        !dep.includes('maxq-');
             });
             if (deps.length > 0) console.log(deps.join(' '));
@@ -39,11 +39,11 @@ update_package_deps() {
             const pkg = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
             const deps = Object.keys(pkg.devDependencies || {}).filter(dep => {
                 const version = pkg.devDependencies[dep];
-                // Skip local dependencies (file:, link:, workspace:, @codespin/ packages)
+                // Skip local dependencies (file:, link:, workspace:, @agilehead/ packages)
                 return !version.startsWith('file:') &&
                        !version.startsWith('link:') &&
                        !version.startsWith('workspace:') &&
-                       !dep.startsWith('@codespin/') &&
+                       !dep.startsWith('@agilehead/') &&
                        !dep.includes('maxq-');
             });
             if (deps.length > 0) console.log(deps.join(' '));

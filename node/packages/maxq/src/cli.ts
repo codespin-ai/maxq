@@ -69,7 +69,7 @@ if (!existsSync(flowsRoot)) {
 
 // Set environment variables
 process.env.MAXQ_SERVER_PORT = options.port;
-process.env.MAXQ_SQLITE_PATH = sqlitePath;
+process.env.MAXQ_DATA_DIR = dataDir;
 process.env.MAXQ_FLOWS_ROOT = flowsRoot;
 process.env.MAXQ_MAX_CONCURRENT_STEPS = options.maxConcurrentSteps;
 process.env.MAXQ_MAX_LOG_CAPTURE = options.maxLogCapture;
@@ -98,4 +98,4 @@ try {
 }
 
 // Start the server
-await import("./start-server.js");
+await import("./bin/server.js");

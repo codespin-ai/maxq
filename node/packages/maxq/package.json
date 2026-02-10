@@ -11,7 +11,6 @@
   "sideEffects": false,
   "files": [
     "dist",
-    "migrations",
     "README.md"
   ],
   "scripts": {
@@ -28,11 +27,11 @@
     "task-runner",
     "workflow-engine"
   ],
-  "author": "CodeSpin",
+  "author": "Agilehead",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/codespin-ai/maxq.git"
+    "url": "https://github.com/agilehead/maxq.git"
   },
   "dependencies": {
     "@tinqerjs/tinqer": "^0.0.22",

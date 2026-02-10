@@ -46,7 +46,7 @@ An individual unit of work within a stage. Steps are shell scripts that execute 
 MAXQ_FLOWS_ROOT=/path/to/flows          # Directory containing workflow definitions
 
 # Optional
-MAXQ_SQLITE_PATH=/path/to/maxq.db       # SQLite database path (default: ./data/maxq.db)
+MAXQ_DATA_DIR=/path/to/data              # Data directory for SQLite database (default: ./data)
 MAXQ_SERVER_PORT=5003                   # HTTP server port (default: 5003)
 MAXQ_SCHEDULER_INTERVAL_MS=200          # Scheduler polling interval (default: 200ms)
 MAXQ_SCHEDULER_BATCH_SIZE=10            # Steps per scheduler iteration (default: 10)
@@ -165,7 +165,7 @@ curl -X POST http://localhost:5003/api/v1/runs \
 
 ```bash
 # Clone and build
-git clone https://github.com/codespin-ai/maxq.git
+git clone https://github.com/agilehead/maxq.git
 cd maxq
 ./scripts/build.sh
 

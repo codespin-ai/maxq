@@ -67,7 +67,7 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo ""
     echo "Examples:"
     echo "  $0                                    # Test maxq:latest on port 5099"
-    echo "  $0 ghcr.io/codespin-ai/maxq:latest   # Test specific image"
+    echo "  $0 ghcr.io/agilehead/maxq:latest   # Test specific image"
     echo "  $0 maxq:latest 5100                  # Test on specific port"
     exit 0
 fi
