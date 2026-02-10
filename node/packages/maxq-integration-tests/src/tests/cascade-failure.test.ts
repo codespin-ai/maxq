@@ -5,16 +5,23 @@
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
 import { testDb, client, testServer, defaultFlowsRoot } from "../test-setup.js";
+import {
+  truncateAllTables,
+  waitForQuery,
+  reconfigureTestServer,
+  httpPost,
+} from "maxq-test-utils";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Run } from "maxq";
 
-describe("Cascade Failure with Dependencies", () => {
+describe("Cascade Failure with Dependencies", function () {
+  this.timeout(30000);
   let flowsRoot: string;
 
   beforeEach(async () => {
-    await testDb.truncateAllTables();
+    truncateAllTables(testDb);
     flowsRoot = await mkdtemp(join(tmpdir(), "maxq-cascade-test-"));
   });
 
@@ -23,7 +30,7 @@ describe("Cascade Failure with Dependencies", () => {
     // Clean up temp directory
     await rm(flowsRoot, { recursive: true, force: true });
     // Restore original flowsRoot
-    await testServer.reconfigure({ flowsRoot: defaultFlowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot: defaultFlowsRoot });
   });
 
   it("should cascade failure to dependent steps when prerequisite fails", async () => {
@@ -87,20 +94,21 @@ exit 0
     }
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "cascade-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to fail
-    const failedRuns = await testDb.waitForQuery<
+    const failedRuns = await waitForQuery<
       { runId: string; status: string },
       { status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -114,10 +122,8 @@ exit 0
     expect(failedRuns[0]!.status).to.equal("failed");
 
     // Verify stage was marked as failed
-    const stages = await testDb.waitForQuery<
-      { runId: string },
-      { status: string }
-    >(
+    const stages = await waitForQuery<{ runId: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -134,10 +140,11 @@ exit 0
     expect(stages[0]!.status).to.equal("failed");
 
     // Verify all steps are in terminal state
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { id: string; name: string; status: string; stderr: string | null }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -256,20 +263,21 @@ exit 0
     await chmod(join(stepDDir, "step.sh"), 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "partial-cascade-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to fail (stage has failures)
-    const failedRuns = await testDb.waitForQuery<
+    const failedRuns = await waitForQuery<
       { runId: string; status: string },
       { status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -282,10 +290,11 @@ exit 0
     expect(failedRuns).to.have.lengthOf(1);
 
     // Verify steps statuses
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { name: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")

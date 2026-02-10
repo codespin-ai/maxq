@@ -4,13 +4,28 @@
 
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
-import { TestDatabase, TestServer, TestHttpClient } from "maxq-test-utils";
+import {
+  type TestDatabase,
+  type TestServer,
+  type TestHttpClient,
+  createTestDatabase,
+  setupTestDatabase,
+  teardownTestDatabase,
+  createTestServer,
+  startTestServer,
+  stopTestServer,
+  reconfigureTestServer,
+  createTestHttpClient,
+  waitForQuery,
+  httpPost,
+} from "maxq-test-utils";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import type { Run } from "maxq";
 
-describe("Scheduler Concurrency Limit", () => {
+describe("Scheduler Concurrency Limit", function () {
+  this.timeout(30000);
   let testDb: TestDatabase;
   let testServer: TestServer;
   let client: TestHttpClient;
@@ -20,22 +35,22 @@ describe("Scheduler Concurrency Limit", () => {
     this.timeout(10000);
 
     // Create test database for this test
-    testDb = new TestDatabase({});
-    await testDb.setup();
+    testDb = createTestDatabase();
+    await setupTestDatabase(testDb);
 
     // Create test server with LOW concurrency limit
-    testServer = new TestServer({
-      dataDir: dirname(testDb.getDbPath()),
+    testServer = createTestServer({
+      dataDir: dirname(testDb.dbPath),
       flowsRoot: "/tmp/flows",
       port: 0, // Random port
       maxConcurrentSteps: 2, // CRITICAL: Only allow 2 concurrent steps
     });
 
-    await testServer.start();
-    const port = testServer.getPort();
+    await startTestServer(testServer);
+    const port = testServer.port;
 
     // Create HTTP client
-    client = new TestHttpClient(`http://localhost:${port}`, {
+    client = createTestHttpClient(`http://localhost:${port}`, {
       headers: { Authorization: "Bearer test-token" },
     });
 
@@ -50,8 +65,8 @@ describe("Scheduler Concurrency Limit", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Clean up
-    await testServer.stop();
-    await testDb.cleanup();
+    await stopTestServer(testServer);
+    await teardownTestDatabase(testDb);
     await rm(flowsRoot, { recursive: true, force: true });
   });
 
@@ -107,10 +122,10 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server with our test flows
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "parallel-flow",
     });
 
@@ -125,8 +140,7 @@ exit 0
     // Poll every 100ms to track concurrent running steps
     const pollInterval = setInterval(async () => {
       try {
-        const runningSteps = testDb
-          .getDb()
+        const runningSteps = testDb.db
           .prepare(
             `
           SELECT COUNT(*) as count
@@ -150,8 +164,7 @@ exit 0
         );
 
         // Check if all steps are complete
-        const completedSteps = testDb
-          .getDb()
+        const completedSteps = testDb.db
           .prepare(
             `
           SELECT COUNT(*) as count
@@ -176,10 +189,8 @@ exit 0
     }, 100);
 
     // Wait for all steps to complete (or timeout)
-    await testDb.waitForQuery<
-      { runId: string },
-      { id: string; status: string }
-    >(
+    await waitForQuery<{ runId: string }, { id: string; status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -197,8 +208,7 @@ exit 0
     clearInterval(pollInterval);
 
     // Verify all 5 steps completed
-    const allSteps = testDb
-      .getDb()
+    const allSteps = testDb.db
       .prepare(
         `
       SELECT id, name, status, started_at, completed_at
@@ -315,9 +325,9 @@ exit 0
     await chmod(join(slowStepDir, "step.sh"), 0o755);
 
     // Reconfigure and run
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "mixed-flow",
     });
 
@@ -327,8 +337,7 @@ exit 0
     let maxConcurrent = 0;
     const checkInterval = setInterval(async () => {
       try {
-        const result = testDb
-          .getDb()
+        const result = testDb.db
           .prepare(
             `
           SELECT COUNT(*) as count FROM step
@@ -347,7 +356,8 @@ exit 0
     }, 50);
 
     // Wait for completion
-    await testDb.waitForQuery(
+    await waitForQuery(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -366,8 +376,7 @@ exit 0
     );
 
     // Verify all steps completed
-    const steps = testDb
-      .getDb()
+    const steps = testDb.db
       .prepare(
         `
       SELECT id, status FROM step WHERE run_id = :runId

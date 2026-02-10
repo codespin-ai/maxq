@@ -15,7 +15,10 @@ const postStepFieldsSchema = z.object({
  * The HTTP POST itself signals that step execution has finished.
  */
 export function postStepFieldsHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string; stepId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId, stepId } = req.params;
 

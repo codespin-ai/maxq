@@ -1,130 +1,146 @@
-export interface HttpResponse<T> {
+/**
+ * MaxQ Test HTTP Client
+ *
+ * Provides HTTP request helpers for integration testing.
+ * Follows functional style - no classes.
+ */
+
+export type HttpResponse<T> = {
   data: T;
   status: number;
   statusText: string;
   headers: Record<string, string>;
-}
+};
 
-export class TestHttpClient {
-  private baseUrl: string;
-  private defaultHeaders: Record<string, string>;
+export type TestHttpClient = {
+  baseUrl: string;
+  headers: Record<string, string>;
+};
 
-  constructor(baseUrl: string, options?: { headers?: Record<string, string> }) {
-    this.baseUrl = baseUrl;
-    this.defaultHeaders = {
+export function createTestHttpClient(
+  baseUrl: string,
+  options?: { headers?: Record<string, string> },
+): TestHttpClient {
+  return {
+    baseUrl,
+    headers: {
       "Content-Type": "application/json",
-      // Default test Bearer token
       Authorization: "Bearer test-token",
       ...options?.headers,
-    };
-  }
+    },
+  };
+}
 
-  private async parseResponse<T>(response: Response): Promise<HttpResponse<T>> {
-    const text = await response.text();
+async function parseResponse<T>(response: Response): Promise<HttpResponse<T>> {
+  const text = await response.text();
 
-    // Try to parse as JSON, otherwise return text
-    const data: T = (() => {
-      try {
-        return JSON.parse(text);
-      } catch {
-        return text as T;
-      }
-    })();
+  // Try to parse as JSON, otherwise return text
+  const data: T = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text as T;
+    }
+  })();
 
-    // Convert headers to plain object
-    const headers: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
+  // Convert headers to plain object
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
 
-    return {
-      data,
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    };
-  }
+  return {
+    data,
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  };
+}
 
-  async request<T = unknown>(
-    path: string,
-    options?: RequestInit,
-  ): Promise<HttpResponse<T>> {
-    const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...this.defaultHeaders,
-        ...options?.headers,
-      },
-    });
+export async function httpRequest<T = unknown>(
+  client: TestHttpClient,
+  path: string,
+  options?: RequestInit,
+): Promise<HttpResponse<T>> {
+  const url = `${client.baseUrl}${path}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...client.headers,
+      ...options?.headers,
+    },
+  });
 
-    return this.parseResponse<T>(response);
-  }
+  return parseResponse<T>(response);
+}
 
-  async get<T = unknown>(
-    path: string,
-    headers?: Record<string, string>,
-  ): Promise<HttpResponse<T>> {
-    return this.request<T>(path, { method: "GET", headers });
-  }
+export async function httpGet<T = unknown>(
+  client: TestHttpClient,
+  path: string,
+  headers?: Record<string, string>,
+): Promise<HttpResponse<T>> {
+  return httpRequest<T>(client, path, { method: "GET", headers });
+}
 
-  async post<T = unknown>(
-    path: string,
-    body?: unknown,
-    headers?: Record<string, string>,
-  ): Promise<HttpResponse<T>> {
-    return this.request<T>(path, {
-      method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
-      headers,
-    });
-  }
+export async function httpPost<T = unknown>(
+  client: TestHttpClient,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<HttpResponse<T>> {
+  return httpRequest<T>(client, path, {
+    method: "POST",
+    body: body ? JSON.stringify(body) : undefined,
+    headers,
+  });
+}
 
-  async put<T = unknown>(
-    path: string,
-    body?: unknown,
-    headers?: Record<string, string>,
-  ): Promise<HttpResponse<T>> {
-    return this.request<T>(path, {
-      method: "PUT",
-      body: body ? JSON.stringify(body) : undefined,
-      headers,
-    });
-  }
+export async function httpPut<T = unknown>(
+  client: TestHttpClient,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<HttpResponse<T>> {
+  return httpRequest<T>(client, path, {
+    method: "PUT",
+    body: body ? JSON.stringify(body) : undefined,
+    headers,
+  });
+}
 
-  async patch<T = unknown>(
-    path: string,
-    body?: unknown,
-    headers?: Record<string, string>,
-  ): Promise<HttpResponse<T>> {
-    return this.request<T>(path, {
-      method: "PATCH",
-      body: body ? JSON.stringify(body) : undefined,
-      headers,
-    });
-  }
+export async function httpPatch<T = unknown>(
+  client: TestHttpClient,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<HttpResponse<T>> {
+  return httpRequest<T>(client, path, {
+    method: "PATCH",
+    body: body ? JSON.stringify(body) : undefined,
+    headers,
+  });
+}
 
-  async delete<T = unknown>(
-    path: string,
-    headers?: Record<string, string>,
-  ): Promise<HttpResponse<T>> {
-    return this.request<T>(path, { method: "DELETE", headers });
-  }
+export async function httpDelete<T = unknown>(
+  client: TestHttpClient,
+  path: string,
+  headers?: Record<string, string>,
+): Promise<HttpResponse<T>> {
+  return httpRequest<T>(client, path, { method: "DELETE", headers });
+}
 
-  // Convenience methods for testing
-  setApiKey(apiKey: string): void {
-    this.defaultHeaders["Authorization"] = `Bearer ${apiKey}`;
-  }
+// Convenience functions for testing
+export function setClientApiKey(client: TestHttpClient, apiKey: string): void {
+  client.headers["Authorization"] = `Bearer ${apiKey}`;
+}
 
-  setAuthHeader(value: string): void {
-    this.defaultHeaders["Authorization"] = value;
-  }
+export function setClientAuthHeader(
+  client: TestHttpClient,
+  value: string,
+): void {
+  client.headers["Authorization"] = value;
+}
 
-  removeHeader(name: string): void {
-    delete this.defaultHeaders[name];
-  }
-
-  getBaseUrl(): string {
-    return this.baseUrl;
-  }
+export function removeClientHeader(client: TestHttpClient, name: string): void {
+  delete client.headers[name];
 }

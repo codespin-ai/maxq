@@ -15,7 +15,10 @@ const logger = createLogger("maxq:handlers:runs:resume");
  * Restarts execution of a paused workflow
  */
 export function resumeRunHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId } = req.params;
       if (!runId) {

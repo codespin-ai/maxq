@@ -21,7 +21,10 @@ const retryStepSchema = z.object({
  * Resets a failed step to pending and optionally cascades to dependent steps
  */
 export function retryStepHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string; stepId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId, stepId } = req.params;
       if (!runId) {

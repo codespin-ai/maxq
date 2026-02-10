@@ -25,7 +25,10 @@ const createRunLogSchema = z.object({
  * Allows recording structured log messages for runs, stages, and steps
  */
 export function createRunLogHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId } = req.params;
       if (!runId) {
