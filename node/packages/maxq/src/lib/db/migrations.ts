@@ -31,7 +31,7 @@ export async function runMigrations(sqlitePath: string): Promise<void> {
     );
 
     if (process.env.DEBUG_MIGRATIONS) {
-      console.log(`Using migrations directory: ${migrationsDir}`);
+      console.info(`Using migrations directory: ${migrationsDir}`);
     }
 
     const fs = await import("fs");
@@ -61,11 +61,11 @@ export async function runMigrations(sqlitePath: string): Promise<void> {
     const [batchNo, log] = await knex.migrate.latest();
 
     if (log.length === 0) {
-      console.log("Database is up to date");
+      console.info("Database is up to date");
     } else {
-      console.log(`Batch ${batchNo} ran the following migrations:`);
+      console.info(`Batch ${batchNo} ran the following migrations:`);
       log.forEach((migration: string) => {
-        console.log(`  - ${migration}`);
+        console.info(`  - ${migration}`);
       });
     }
   } finally {

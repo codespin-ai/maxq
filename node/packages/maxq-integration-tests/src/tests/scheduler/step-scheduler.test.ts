@@ -7,13 +7,21 @@
  */
 
 import { expect } from "chai";
-import { testDb } from "../../test-setup.js";
+import { testDb, testServer, defaultFlowsRoot } from "../../test-setup.js";
+import {
+  truncateAllTables,
+  insertStage,
+  insertStep,
+  reconfigureTestServer,
+} from "maxq-test-utils";
 import {
   pickAndClaimSteps,
   type SchedulerConfig,
 } from "maxq/src/scheduler/step-scheduler.js";
 import type { DataContext } from "maxq/src/domain/data-context.js";
 import { StepProcessRegistry } from "maxq/src/executor/process-registry.js";
+import { mkdirSync, writeFileSync, chmodSync, existsSync } from "fs";
+import { join } from "path";
 
 // Type definitions for database query results
 type StepStatusQueryResult = {
@@ -27,19 +35,63 @@ type StepClaimQueryResult = {
   claimed_at: number | null;
 };
 
-describe("Step Scheduler Unit Tests", () => {
+describe("Step Scheduler Unit Tests", function () {
+  this.timeout(10000);
+
   let ctx: DataContext;
   let config: SchedulerConfig;
 
-  beforeEach(async () => {
-    await testDb.truncateAllTables();
+  // Disable the test server's scheduler to prevent it from racing with
+  // the unit test's direct pickAndClaimSteps calls on the shared DB.
+  // Also create step scripts so background execution doesn't error.
+  before(async function () {
+    this.timeout(15000);
+    await reconfigureTestServer(testServer, {
+      maxConcurrentSteps: 0,
+      flowsRoot: defaultFlowsRoot,
+    });
 
-    // Create data context
+    const stepNames = ["test-step", "not-queued", "queued", "completed"];
+    const stepScript = "#!/bin/bash\nexit 0\n";
+    for (const name of stepNames) {
+      const stepDir = join(defaultFlowsRoot, "test-flow", "steps", name);
+      if (!existsSync(stepDir)) {
+        mkdirSync(stepDir, { recursive: true });
+      }
+      const stepPath = join(stepDir, "step.sh");
+      if (!existsSync(stepPath)) {
+        writeFileSync(stepPath, stepScript);
+        chmodSync(stepPath, 0o755);
+      }
+    }
+  });
+
+  // Restore the test server's scheduler after unit tests complete
+  after(async function () {
+    this.timeout(15000);
+    await reconfigureTestServer(testServer, {
+      maxConcurrentSteps: 10,
+      flowsRoot: defaultFlowsRoot,
+    });
+  });
+
+  afterEach(async () => {
+    // pickAndClaimSteps fires executeStepWithRetry as fire-and-forget.
+    // After the step process exits, the async chain still runs:
+    //   update step status → check stage completion → trigger flow callback
+    // Wait for this full chain to finish before the next test truncates tables.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  });
+
+  beforeEach(async () => {
+    truncateAllTables(testDb);
+
+    // Create data context - use real test flows root
     ctx = {
-      db: testDb.getDb(),
+      db: testDb.db,
       executor: {
         config: {
-          flowsRoot: "/tmp/test-flows",
+          flowsRoot: defaultFlowsRoot,
           maxLogCapture: 8192,
           maxConcurrentSteps: 10,
         },
@@ -60,7 +112,7 @@ describe("Step Scheduler Unit Tests", () => {
     const runId = "run-1";
     const stageId = "stage-1";
     const stepId = "step-1";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create run and stage
     db.prepare(
@@ -68,7 +120,7 @@ describe("Step Scheduler Unit Tests", () => {
        VALUES (?, ?, ?, ?)`,
     ).run(runId, "test-flow", "running", Date.now());
 
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -78,7 +130,7 @@ describe("Step Scheduler Unit Tests", () => {
     });
 
     // Insert step with queued_at=null (as retry would leave it)
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: stepId,
       run_id: runId,
       stage_id: stageId,
@@ -121,7 +173,7 @@ describe("Step Scheduler Unit Tests", () => {
     const runId = "run-2";
     const stageId = "stage-2";
     const stepId = "step-2";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create run and stage
     db.prepare(
@@ -129,7 +181,7 @@ describe("Step Scheduler Unit Tests", () => {
        VALUES (?, ?, ?, ?)`,
     ).run(runId, "test-flow", "running", Date.now());
 
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -140,7 +192,7 @@ describe("Step Scheduler Unit Tests", () => {
 
     // Insert step with queued_at set (as orchestrator would do)
     const queuedAt = Date.now();
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: stepId,
       run_id: runId,
       stage_id: stageId,
@@ -183,7 +235,7 @@ describe("Step Scheduler Unit Tests", () => {
   it("should only pick up pending steps with queued_at set among mixed states", async () => {
     const runId = "run-3";
     const stageId = "stage-3";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create run and stage
     db.prepare(
@@ -191,7 +243,7 @@ describe("Step Scheduler Unit Tests", () => {
        VALUES (?, ?, ?, ?)`,
     ).run(runId, "test-flow", "running", Date.now());
 
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -204,7 +256,7 @@ describe("Step Scheduler Unit Tests", () => {
     const now = Date.now();
 
     // Step 1: pending with queued_at=null (should NOT be picked)
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: "step-not-queued",
       run_id: runId,
       stage_id: stageId,
@@ -217,7 +269,7 @@ describe("Step Scheduler Unit Tests", () => {
     });
 
     // Step 2: pending with queued_at set (should be picked)
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: "step-queued",
       run_id: runId,
       stage_id: stageId,
@@ -234,7 +286,7 @@ describe("Step Scheduler Unit Tests", () => {
     );
 
     // Step 3: completed (should NOT be picked)
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: "step-completed",
       run_id: runId,
       stage_id: stageId,
@@ -277,7 +329,7 @@ describe("Step Scheduler Unit Tests", () => {
     const runId = "run-4";
     const stageId = "stage-4";
     const stepId = "step-4";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create terminated run
     db.prepare(
@@ -285,7 +337,7 @@ describe("Step Scheduler Unit Tests", () => {
        VALUES (?, ?, ?, ?, ?)`,
     ).run(runId, "test-flow", "failed", Date.now(), "aborted");
 
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -297,7 +349,7 @@ describe("Step Scheduler Unit Tests", () => {
 
     // Insert step with queued_at set
     const queuedAt = Date.now();
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: stepId,
       run_id: runId,
       stage_id: stageId,

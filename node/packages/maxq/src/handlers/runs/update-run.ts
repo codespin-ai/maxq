@@ -21,7 +21,7 @@ export const updateRunSchema = z.object({
  * PATCH /api/v1/runs/:id - Update a run
  */
 export function updateRunHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
 

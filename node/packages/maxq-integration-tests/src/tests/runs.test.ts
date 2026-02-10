@@ -1,15 +1,25 @@
 import { expect } from "chai";
 import { testDb, client } from "../test-setup.js";
+import {
+  truncateAllTables,
+  waitForQuery,
+  insertStage,
+  insertStep,
+  httpGet,
+  httpPost,
+  httpPatch,
+} from "maxq-test-utils";
 import type { Run, PaginatedResult } from "maxq";
 
-describe("Runs API", () => {
+describe("Runs API", function () {
+  this.timeout(30000);
   beforeEach(async () => {
-    await testDb.truncateAllTables();
+    truncateAllTables(testDb);
   });
 
   describe("POST /api/v1/runs", () => {
     it("should create a new run with minimal data", async () => {
-      const response = await client.post<Run>("/api/v1/runs", {
+      const response = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
 
@@ -21,7 +31,7 @@ describe("Runs API", () => {
     });
 
     it("should create a run with input data", async () => {
-      const response = await client.post<Run>("/api/v1/runs", {
+      const response = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "market-analysis",
         input: { symbol: "AAPL", interval: "1d" },
       });
@@ -36,7 +46,7 @@ describe("Runs API", () => {
     });
 
     it("should create a run with metadata", async () => {
-      const response = await client.post<Run>("/api/v1/runs", {
+      const response = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "data-pipeline",
         metadata: { source: "api", priority: "high" },
       });
@@ -50,9 +60,13 @@ describe("Runs API", () => {
     });
 
     it("should return 400 for invalid input", async () => {
-      const response = await client.post<{ error: string }>("/api/v1/runs", {
-        // Missing required flowName
-      });
+      const response = await httpPost<{ error: string }>(
+        client,
+        "/api/v1/runs",
+        {
+          // Missing required flowName
+        },
+      );
 
       expect(response.status).to.equal(400);
       expect(response.data).to.have.property("error");
@@ -62,14 +76,14 @@ describe("Runs API", () => {
   describe("GET /api/v1/runs/:id", () => {
     it("should get a run by id", async () => {
       // Create a run first
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
         input: { test: "data" },
       });
       const runId = createResponse.data.id;
 
       // Get the run
-      const response = await client.get<Run>(`/api/v1/runs/${runId}`);
+      const response = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
 
       expect(response.status).to.equal(200);
       expect(response.data).to.have.property("id", runId);
@@ -79,7 +93,8 @@ describe("Runs API", () => {
     });
 
     it("should return 404 for non-existent run", async () => {
-      const response = await client.get<{ error: string }>(
+      const response = await httpGet<{ error: string }>(
+        client,
         "/api/v1/runs/non-existent-id",
       );
 
@@ -91,13 +106,13 @@ describe("Runs API", () => {
   describe("PATCH /api/v1/runs/:id", () => {
     it("should update run status", async () => {
       // Create a run first
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Update the run
-      const response = await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      const response = await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "running",
       });
 
@@ -108,13 +123,13 @@ describe("Runs API", () => {
 
     it("should update run output data", async () => {
       // Create a run first
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Update with output data
-      const response = await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      const response = await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "completed",
         output: { result: "success", count: 42 },
       });
@@ -130,13 +145,13 @@ describe("Runs API", () => {
 
     it("should update run with error", async () => {
       // Create a run first
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Update with error
-      const response = await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      const response = await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "failed",
         error: { message: "Step failed", code: "STEP_ERROR" },
       });
@@ -151,7 +166,8 @@ describe("Runs API", () => {
     });
 
     it("should return 400 for non-existent run", async () => {
-      const response = await client.patch<{ error: string }>(
+      const response = await httpPatch<{ error: string }>(
+        client,
         "/api/v1/runs/non-existent-id",
         {
           status: "completed",
@@ -164,13 +180,14 @@ describe("Runs API", () => {
 
     it("should return 400 for invalid status", async () => {
       // Create a run first
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Try to update with invalid status
-      const response = await client.patch<{ error: string }>(
+      const response = await httpPatch<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}`,
         {
           status: "invalid-status",
@@ -183,13 +200,13 @@ describe("Runs API", () => {
 
     it("should update run with name and description", async () => {
       // Create a run first
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Update with name and description
-      const response = await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      const response = await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         name: "Q4 Analysis",
         description: "Quarterly market analysis for tech sector",
       });
@@ -206,21 +223,22 @@ describe("Runs API", () => {
   describe("GET /api/v1/runs", () => {
     it("should list runs with pagination", async () => {
       // Create a few runs
-      await client.post<Run>("/api/v1/runs", {
+      await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "flow-1",
         input: { test: 1 },
       });
-      await client.post<Run>("/api/v1/runs", {
+      await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "flow-2",
         input: { test: 2 },
       });
-      await client.post<Run>("/api/v1/runs", {
+      await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "flow-3",
         input: { test: 3 },
       });
 
       // List runs with limit
-      const response = await client.get<PaginatedResult<Run>>(
+      const response = await httpGet<PaginatedResult<Run>>(
+        client,
         "/api/v1/runs?limit=2",
       );
 
@@ -235,12 +253,13 @@ describe("Runs API", () => {
 
     it("should filter runs by flowName", async () => {
       // Create runs with different flow names
-      await client.post<Run>("/api/v1/runs", { flowName: "workflow-a" });
-      await client.post<Run>("/api/v1/runs", { flowName: "workflow-b" });
-      await client.post<Run>("/api/v1/runs", { flowName: "workflow-a" });
+      await httpPost<Run>(client, "/api/v1/runs", { flowName: "workflow-a" });
+      await httpPost<Run>(client, "/api/v1/runs", { flowName: "workflow-b" });
+      await httpPost<Run>(client, "/api/v1/runs", { flowName: "workflow-a" });
 
       // Filter by flowName
-      const response = await client.get<PaginatedResult<Run>>(
+      const response = await httpGet<PaginatedResult<Run>>(
+        client,
         "/api/v1/runs?flowName=workflow-a",
       );
 
@@ -254,10 +273,10 @@ describe("Runs API", () => {
       // Create runs with different statuses
       // Note: With scheduler-driven model, runs will be automatically executed
       // So we mark them with different statuses explicitly
-      const run1Response = await client.post<Run>("/api/v1/runs", {
+      const run1Response = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow-1",
       });
-      const run2Response = await client.post<Run>("/api/v1/runs", {
+      const run2Response = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow-2",
       });
 
@@ -265,15 +284,16 @@ describe("Runs API", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Update one to completed and one to failed
-      await client.patch<Run>(`/api/v1/runs/${run1Response.data.id}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${run1Response.data.id}`, {
         status: "completed",
       });
-      await client.patch<Run>(`/api/v1/runs/${run2Response.data.id}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${run2Response.data.id}`, {
         status: "failed",
       });
 
       // Filter by status=completed
-      const response = await client.get<PaginatedResult<Run>>(
+      const response = await httpGet<PaginatedResult<Run>>(
+        client,
         "/api/v1/runs?status=completed",
       );
 
@@ -289,14 +309,15 @@ describe("Runs API", () => {
     it("should handle pagination with offset", async () => {
       // Create several runs
       for (let i = 0; i < 5; i++) {
-        await client.post<Run>("/api/v1/runs", {
+        await httpPost<Run>(client, "/api/v1/runs", {
           flowName: "test-flow",
           input: { index: i },
         });
       }
 
       // Get second page
-      const response = await client.get<PaginatedResult<Run>>(
+      const response = await httpGet<PaginatedResult<Run>>(
+        client,
         "/api/v1/runs?limit=2&offset=2",
       );
 
@@ -309,19 +330,22 @@ describe("Runs API", () => {
 
     it("should sort runs by createdAt descending by default", async () => {
       // Create runs with delays to ensure different timestamps
-      const run1 = await client.post<Run>("/api/v1/runs", {
+      const run1 = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "flow-1",
       });
       await new Promise((resolve) => setTimeout(resolve, 10));
-      const run2 = await client.post<Run>("/api/v1/runs", {
+      const run2 = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "flow-2",
       });
       await new Promise((resolve) => setTimeout(resolve, 10));
-      const run3 = await client.post<Run>("/api/v1/runs", {
+      const run3 = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "flow-3",
       });
 
-      const response = await client.get<PaginatedResult<Run>>("/api/v1/runs");
+      const response = await httpGet<PaginatedResult<Run>>(
+        client,
+        "/api/v1/runs",
+      );
 
       expect(response.status).to.equal(200);
       expect(response.data.data).to.have.lengthOf(3);
@@ -335,13 +359,14 @@ describe("Runs API", () => {
   describe("POST /api/v1/runs/:runId/abort", () => {
     it("should abort a running workflow", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Wait for orchestrator to finish (test flow completes immediately)
-      await testDb.waitForQuery(
+      await waitForQuery(
+        testDb,
         (q, p) =>
           q
             .from("run")
@@ -357,12 +382,13 @@ describe("Runs API", () => {
 
       // For this test, we'll update status back to "running" manually to test abort
       // In real scenarios, a run would be running with active processes
-      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "running",
       });
 
       // Abort the run
-      const response = await client.post<{ message: string }>(
+      const response = await httpPost<{ message: string }>(
+        client,
         `/api/v1/runs/${runId}/abort`,
         {},
       );
@@ -371,13 +397,14 @@ describe("Runs API", () => {
       expect(response.data).to.have.property("message");
 
       // Verify run is aborted (status=failed with termination_reason=aborted)
-      const getResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+      const getResponse = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
       expect(getResponse.data).to.have.property("status", "failed");
       expect(getResponse.data).to.have.property("terminationReason", "aborted");
     });
 
     it("should return 404 for non-existent run", async () => {
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         "/api/v1/runs/non-existent-id/abort",
         {},
       );
@@ -388,17 +415,18 @@ describe("Runs API", () => {
 
     it("should return 400 for already completed run", async () => {
       // Create and complete a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
-      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "completed",
       });
 
       // Try to abort completed run
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/abort`,
         {},
       );
@@ -411,13 +439,14 @@ describe("Runs API", () => {
   describe("POST /api/v1/runs/:runId/retry", () => {
     it("should retry an aborted workflow", async () => {
       // Create, run, and abort a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Wait for orchestrator to finish
-      await testDb.waitForQuery(
+      await waitForQuery(
+        testDb,
         (q, p) =>
           q
             .from("run")
@@ -431,14 +460,15 @@ describe("Runs API", () => {
         { timeout: 5000 },
       );
 
-      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "running",
       });
 
-      await client.post(`/api/v1/runs/${runId}/abort`, {});
+      await httpPost(client, `/api/v1/runs/${runId}/abort`, {});
 
       // Retry the run
-      const response = await client.post<{ run: Run; message: string }>(
+      const response = await httpPost<{ run: Run; message: string }>(
+        client,
         `/api/v1/runs/${runId}/retry`,
         {},
       );
@@ -455,13 +485,14 @@ describe("Runs API", () => {
 
     it("should retry a failed workflow", async () => {
       // Create a run and mark it as failed
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Wait for orchestrator to finish
-      await testDb.waitForQuery(
+      await waitForQuery(
+        testDb,
         (q, p) =>
           q
             .from("run")
@@ -475,12 +506,13 @@ describe("Runs API", () => {
         { timeout: 5000 },
       );
 
-      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "failed",
       });
 
       // Retry the run
-      const response = await client.post<{ run: Run; message: string }>(
+      const response = await httpPost<{ run: Run; message: string }>(
+        client,
         `/api/v1/runs/${runId}/retry`,
         {},
       );
@@ -493,7 +525,8 @@ describe("Runs API", () => {
     });
 
     it("should return 404 for non-existent run", async () => {
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         "/api/v1/runs/non-existent-id/retry",
         {},
       );
@@ -504,13 +537,14 @@ describe("Runs API", () => {
 
     it("should return 409 for run still in progress", async () => {
       // Create a run that's still running (not aborted)
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Wait for orchestrator to finish
-      await testDb.waitForQuery(
+      await waitForQuery(
+        testDb,
         (q, p) =>
           q
             .from("run")
@@ -524,12 +558,13 @@ describe("Runs API", () => {
         { timeout: 5000 },
       );
 
-      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "running",
       });
 
       // Try to retry run that's still in progress
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/retry`,
         {},
       );
@@ -541,17 +576,18 @@ describe("Runs API", () => {
 
     it("should return 400 for completed run", async () => {
       // Create and complete a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
-      await client.patch<Run>(`/api/v1/runs/${runId}`, {
+      await httpPatch<Run>(client, `/api/v1/runs/${runId}`, {
         status: "completed",
       });
 
       // Try to retry completed run
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/retry`,
         {},
       );
@@ -565,20 +601,20 @@ describe("Runs API", () => {
   describe("POST /api/v1/runs/:runId/logs", () => {
     it("should create a run log entry", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create a log entry
-      const response = await client.post<{
+      const response = await httpPost<{
         id: string;
         runId: string;
         entityType: string;
         level: string;
         message: string;
         createdAt: number;
-      }>(`/api/v1/runs/${runId}/logs`, {
+      }>(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "Workflow started",
@@ -595,13 +631,13 @@ describe("Runs API", () => {
 
     it("should create a log with entity id and metadata", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create a log entry with entity id and metadata
-      const response = await client.post<{
+      const response = await httpPost<{
         id: string;
         runId: string;
         entityType: string;
@@ -610,7 +646,7 @@ describe("Runs API", () => {
         message: string;
         metadata?: unknown;
         createdAt: number;
-      }>(`/api/v1/runs/${runId}/logs`, {
+      }>(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "fetch-data",
         level: "error",
@@ -631,12 +667,13 @@ describe("Runs API", () => {
     });
 
     it("should return 400 for invalid log level", async () => {
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/logs`,
         {
           entityType: "run",
@@ -650,12 +687,13 @@ describe("Runs API", () => {
     });
 
     it("should return 400 for missing required fields", async () => {
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
-      const response = await client.post<{ error: string }>(
+      const response = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/logs`,
         {
           entityType: "run",
@@ -671,24 +709,24 @@ describe("Runs API", () => {
   describe("GET /api/v1/runs/:runId/logs", () => {
     it("should list all logs for a run", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create multiple log entries
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "Workflow started",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "stage",
         entityId: "stage-1",
         level: "info",
         message: "Stage started",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-1",
         level: "debug",
@@ -696,7 +734,7 @@ describe("Runs API", () => {
       });
 
       // List all logs
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<{
           id: string;
           runId: string;
@@ -705,7 +743,7 @@ describe("Runs API", () => {
           message: string;
         }>;
         count: number;
-      }>(`/api/v1/runs/${runId}/logs`);
+      }>(client, `/api/v1/runs/${runId}/logs`);
 
       expect(response.status).to.equal(200);
       expect(response.data).to.have.property("logs");
@@ -715,24 +753,24 @@ describe("Runs API", () => {
 
     it("should filter logs by entity type", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create logs with different entity types
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "Run log",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-1",
         level: "info",
         message: "Step log 1",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-2",
         level: "info",
@@ -740,14 +778,14 @@ describe("Runs API", () => {
       });
 
       // Filter by entity type
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<{
           id: string;
           entityType: string;
           message: string;
         }>;
         count: number;
-      }>(`/api/v1/runs/${runId}/logs?entityType=step`);
+      }>(client, `/api/v1/runs/${runId}/logs?entityType=step`);
 
       expect(response.status).to.equal(200);
       expect(response.data.count).to.equal(2);
@@ -758,25 +796,25 @@ describe("Runs API", () => {
 
     it("should filter logs by entity id", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create logs with different entity ids
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-1",
         level: "info",
         message: "Step 1 started",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-1",
         level: "info",
         message: "Step 1 completed",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-2",
         level: "info",
@@ -784,14 +822,14 @@ describe("Runs API", () => {
       });
 
       // Filter by entity id
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<{
           id: string;
           entityId?: string;
           message: string;
         }>;
         count: number;
-      }>(`/api/v1/runs/${runId}/logs?entityId=step-1`);
+      }>(client, `/api/v1/runs/${runId}/logs?entityId=step-1`);
 
       expect(response.status).to.equal(200);
       expect(response.data.count).to.equal(2);
@@ -802,37 +840,37 @@ describe("Runs API", () => {
 
     it("should filter logs by level", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create logs with different levels
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "debug",
         message: "Debug message",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "error",
         message: "Error message",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "Info message",
       });
 
       // Filter by level
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<{
           id: string;
           level: string;
           message: string;
         }>;
         count: number;
-      }>(`/api/v1/runs/${runId}/logs?level=error`);
+      }>(client, `/api/v1/runs/${runId}/logs?level=error`);
 
       expect(response.status).to.equal(200);
       expect(response.data.count).to.equal(1);
@@ -843,14 +881,14 @@ describe("Runs API", () => {
 
     it("should respect limit parameter", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create multiple logs
       for (let i = 0; i < 5; i++) {
-        await client.post(`/api/v1/runs/${runId}/logs`, {
+        await httpPost(client, `/api/v1/runs/${runId}/logs`, {
           entityType: "run",
           level: "info",
           message: `Log ${i}`,
@@ -858,10 +896,10 @@ describe("Runs API", () => {
       }
 
       // Request with limit
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<unknown>;
         count: number;
-      }>(`/api/v1/runs/${runId}/logs?limit=3`);
+      }>(client, `/api/v1/runs/${runId}/logs?limit=3`);
 
       expect(response.status).to.equal(200);
       expect(response.data.logs).to.have.lengthOf(3);
@@ -870,39 +908,39 @@ describe("Runs API", () => {
 
     it("should sort logs by createdAt descending", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create logs with delays
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "First log",
       });
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "Second log",
       });
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "run",
         level: "info",
         message: "Third log",
       });
 
       // Get logs
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<{
           message: string;
           createdAt: number;
         }>;
-      }>(`/api/v1/runs/${runId}/logs`);
+      }>(client, `/api/v1/runs/${runId}/logs`);
 
       expect(response.status).to.equal(200);
       // Most recent first
@@ -921,25 +959,25 @@ describe("Runs API", () => {
 
     it("should combine multiple filters", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-flow",
       });
       const runId = createResponse.data.id;
 
       // Create logs with various combinations
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-1",
         level: "error",
         message: "Step 1 error",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-1",
         level: "info",
         message: "Step 1 info",
       });
-      await client.post(`/api/v1/runs/${runId}/logs`, {
+      await httpPost(client, `/api/v1/runs/${runId}/logs`, {
         entityType: "step",
         entityId: "step-2",
         level: "error",
@@ -947,7 +985,7 @@ describe("Runs API", () => {
       });
 
       // Filter by both entityType and level
-      const response = await client.get<{
+      const response = await httpGet<{
         logs: Array<{
           entityType: string;
           entityId?: string;
@@ -955,7 +993,7 @@ describe("Runs API", () => {
           message: string;
         }>;
         count: number;
-      }>(`/api/v1/runs/${runId}/logs?entityType=step&level=error`);
+      }>(client, `/api/v1/runs/${runId}/logs?entityType=step&level=error`);
 
       expect(response.status).to.equal(200);
       expect(response.data.count).to.equal(2);
@@ -972,40 +1010,41 @@ describe("Runs API", () => {
   describe("POST /api/v1/runs/:runId/pause", () => {
     it("should pause a pending run", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Pause it
-      const pauseResponse = await client.post<{
+      const pauseResponse = await httpPost<{
         message: string;
         processesKilled: number;
-      }>(`/api/v1/runs/${runId}/pause`);
+      }>(client, `/api/v1/runs/${runId}/pause`);
 
       expect(pauseResponse.status).to.equal(200);
       expect(pauseResponse.data.message).to.equal("Run paused successfully");
 
       // Verify run status
-      const getResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+      const getResponse = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
       expect(getResponse.data.status).to.equal("paused");
     });
 
     it("should not pause an already completed run", async () => {
       // Create a run and mark it as completed
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Mark as completed
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "completed",
         completedAt: Date.now(),
       });
 
       // Try to pause
-      const pauseResponse = await client.post<{ error: string }>(
+      const pauseResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/pause`,
         {},
       );
@@ -1016,13 +1055,14 @@ describe("Runs API", () => {
 
     it("should not pause an already failed run", async () => {
       // Create a run and mark it as failed
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Wait for orchestrator to finish
-      await testDb.waitForQuery(
+      await waitForQuery(
+        testDb,
         (q, p) =>
           q
             .from("run")
@@ -1037,13 +1077,14 @@ describe("Runs API", () => {
       );
 
       // Mark as failed
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "failed",
         completedAt: Date.now(),
       });
 
       // Try to pause
-      const pauseResponse = await client.post<{ error: string }>(
+      const pauseResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/pause`,
         {},
       );
@@ -1053,7 +1094,8 @@ describe("Runs API", () => {
     });
 
     it("should return 404 for non-existent run", async () => {
-      const pauseResponse = await client.post<{ error: string }>(
+      const pauseResponse = await httpPost<{ error: string }>(
+        client,
         "/api/v1/runs/non-existent-id/pause",
         {},
       );
@@ -1066,23 +1108,23 @@ describe("Runs API", () => {
   describe("POST /api/v1/runs/:runId/resume", () => {
     it("should resume a paused run", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Pause it
-      await client.post(`/api/v1/runs/${runId}/pause`);
+      await httpPost(client, `/api/v1/runs/${runId}/pause`);
 
       // Verify it's paused
-      const pausedRun = await client.get<Run>(`/api/v1/runs/${runId}`);
+      const pausedRun = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
       expect(pausedRun.data.status).to.equal("paused");
 
       // Resume it
-      const resumeResponse = await client.post<{
+      const resumeResponse = await httpPost<{
         run: Run;
         message: string;
-      }>(`/api/v1/runs/${runId}/resume`);
+      }>(client, `/api/v1/runs/${runId}/resume`);
 
       expect(resumeResponse.status).to.equal(200);
       expect(resumeResponse.data.message).to.equal("Run resumed successfully");
@@ -1091,13 +1133,14 @@ describe("Runs API", () => {
 
     it("should not resume a non-paused run", async () => {
       // Create a run (not paused)
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Try to resume
-      const resumeResponse = await client.post<{ error: string }>(
+      const resumeResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/resume`,
         {},
       );
@@ -1108,19 +1151,20 @@ describe("Runs API", () => {
 
     it("should not resume a completed run", async () => {
       // Create a run and mark it as completed
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Mark as completed
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "completed",
         completedAt: Date.now(),
       });
 
       // Try to resume
-      const resumeResponse = await client.post<{ error: string }>(
+      const resumeResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/resume`,
         {},
       );
@@ -1130,7 +1174,8 @@ describe("Runs API", () => {
     });
 
     it("should return 404 for non-existent run", async () => {
-      const resumeResponse = await client.post<{ error: string }>(
+      const resumeResponse = await httpPost<{ error: string }>(
+        client,
         "/api/v1/runs/non-existent-id/resume",
         {},
       );
@@ -1143,13 +1188,13 @@ describe("Runs API", () => {
   describe("POST /api/v1/runs/:runId/steps/:stepId/retry", () => {
     it("should retry a failed step without cascading", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Manually insert a stage and a failed step
-      await testDb.insertStage({
+      insertStage(testDb, {
         id: "stage-1",
         run_id: runId,
         name: "test-stage",
@@ -1158,7 +1203,7 @@ describe("Runs API", () => {
         created_at: Date.now(),
       });
 
-      await testDb.insertStep({
+      insertStep(testDb, {
         id: "step-1",
         run_id: runId,
         stage_id: "stage-1",
@@ -1171,16 +1216,16 @@ describe("Runs API", () => {
       });
 
       // Mark run as failed
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "failed",
       });
 
       // Retry the step without cascading
-      const retryResponse = await client.post<{
+      const retryResponse = await httpPost<{
         step: Run;
         cascadedSteps: Run[];
         message: string;
-      }>(`/api/v1/runs/${runId}/steps/step-1/retry`, {
+      }>(client, `/api/v1/runs/${runId}/steps/step-1/retry`, {
         cascadeDownstream: false,
       });
 
@@ -1190,19 +1235,19 @@ describe("Runs API", () => {
       expect(retryResponse.data.cascadedSteps).to.have.lengthOf(0);
 
       // Verify run status changed to running
-      const runResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+      const runResponse = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
       expect(runResponse.data.status).to.equal("running");
     });
 
     it("should retry a failed step with cascading to dependent steps", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Insert stage
-      await testDb.insertStage({
+      insertStage(testDb, {
         id: "stage-1",
         run_id: runId,
         name: "test-stage",
@@ -1212,7 +1257,7 @@ describe("Runs API", () => {
       });
 
       // Insert failed step
-      await testDb.insertStep({
+      insertStep(testDb, {
         id: "step-1",
         run_id: runId,
         stage_id: "stage-1",
@@ -1225,7 +1270,7 @@ describe("Runs API", () => {
       });
 
       // Insert dependent step (depends on step-1)
-      await testDb.insertStep({
+      insertStep(testDb, {
         id: "step-2",
         run_id: runId,
         stage_id: "stage-1",
@@ -1238,16 +1283,16 @@ describe("Runs API", () => {
       });
 
       // Mark run as failed
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "failed",
       });
 
       // Retry the step with cascading
-      const retryResponse = await client.post<{
+      const retryResponse = await httpPost<{
         step: Run;
         cascadedSteps: Run[];
         message: string;
-      }>(`/api/v1/runs/${runId}/steps/step-1/retry`, {
+      }>(client, `/api/v1/runs/${runId}/steps/step-1/retry`, {
         cascadeDownstream: true,
       });
 
@@ -1261,13 +1306,13 @@ describe("Runs API", () => {
 
     it("should not retry a non-failed step", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Insert stage and completed step
-      await testDb.insertStage({
+      insertStage(testDb, {
         id: "stage-1",
         run_id: runId,
         name: "test-stage",
@@ -1276,7 +1321,7 @@ describe("Runs API", () => {
         created_at: Date.now(),
       });
 
-      await testDb.insertStep({
+      insertStep(testDb, {
         id: "step-1",
         run_id: runId,
         stage_id: "stage-1",
@@ -1289,12 +1334,13 @@ describe("Runs API", () => {
       });
 
       // Mark run as failed so it's not actively running
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "failed",
       });
 
       // Try to retry a completed step
-      const retryResponse = await client.post<{ error: string }>(
+      const retryResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/steps/step-1/retry`,
         {},
       );
@@ -1305,13 +1351,13 @@ describe("Runs API", () => {
 
     it("should not retry a step from a completed run", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Insert stage and step
-      await testDb.insertStage({
+      insertStage(testDb, {
         id: "stage-1",
         run_id: runId,
         name: "test-stage",
@@ -1320,7 +1366,7 @@ describe("Runs API", () => {
         created_at: Date.now(),
       });
 
-      await testDb.insertStep({
+      insertStep(testDb, {
         id: "step-1",
         run_id: runId,
         stage_id: "stage-1",
@@ -1333,13 +1379,14 @@ describe("Runs API", () => {
       });
 
       // Mark run as completed
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "completed",
         completedAt: Date.now(),
       });
 
       // Try to retry
-      const retryResponse = await client.post<{ error: string }>(
+      const retryResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/steps/step-1/retry`,
         {},
       );
@@ -1350,13 +1397,14 @@ describe("Runs API", () => {
 
     it("should return 404 for non-existent step", async () => {
       // Create a run
-      const createResponse = await client.post<Run>("/api/v1/runs", {
+      const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
         flowName: "test-workflow",
       });
       const runId = createResponse.data.id;
 
       // Wait for orchestrator to finish (test flow completes immediately)
-      await testDb.waitForQuery(
+      await waitForQuery(
+        testDb,
         (q, p) =>
           q
             .from("run")
@@ -1371,11 +1419,12 @@ describe("Runs API", () => {
       );
 
       // Mark run as failed (not completed) so step-not-found check is reached
-      await client.patch(`/api/v1/runs/${runId}`, {
+      await httpPatch(client, `/api/v1/runs/${runId}`, {
         status: "failed",
       });
 
-      const retryResponse = await client.post<{ error: string }>(
+      const retryResponse = await httpPost<{ error: string }>(
+        client,
         `/api/v1/runs/${runId}/steps/non-existent-step/retry`,
         {},
       );

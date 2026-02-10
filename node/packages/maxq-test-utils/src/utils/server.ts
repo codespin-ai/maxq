@@ -1,7 +1,14 @@
+/**
+ * MaxQ Test Server
+ *
+ * Spawns and manages a MaxQ server process for integration testing.
+ * Follows functional style - no classes.
+ */
+
 import { spawn, ChildProcess } from "child_process";
 import { Logger, consoleLogger } from "./test-logger.js";
 
-export interface TestServerOptions {
+export type TestServerOptions = {
   port?: number;
   dataDir?: string;
   maxRetries?: number;
@@ -9,198 +16,205 @@ export interface TestServerOptions {
   logger?: Logger;
   flowsRoot?: string;
   maxConcurrentSteps?: number;
+};
+
+export type TestServer = {
+  process: ChildProcess | null;
+  port: number;
+  dataDir: string;
+  maxRetries: number;
+  retryDelay: number;
+  logger: Logger;
+  flowsRoot: string;
+  maxConcurrentSteps: number;
+};
+
+function generateRandomPort(): number {
+  return 49152 + Math.floor(Math.random() * (65535 - 49152));
 }
 
-export class TestServer {
-  private process: ChildProcess | null = null;
-  private port: number;
-  private dataDir: string;
-  private maxRetries: number;
-  private retryDelay: number;
-  private logger: Logger;
-  private flowsRoot: string;
-  private maxConcurrentSteps: number;
+export function createTestServer(options: TestServerOptions = {}): TestServer {
+  let port: number;
+  if (options.port === 0) {
+    port = generateRandomPort();
+  } else {
+    port = options.port || 5099;
+  }
 
-  constructor(options: TestServerOptions = {}) {
-    // If port is 0, generate a random port (49152-65535 range)
-    if (options.port === 0) {
-      this.port = 49152 + Math.floor(Math.random() * (65535 - 49152));
-    } else {
-      this.port = options.port || 5099;
+  return {
+    process: null,
+    port,
+    dataDir: options.dataDir || `/tmp/maxq_test_${Date.now()}`,
+    maxRetries: options.maxRetries || 30,
+    retryDelay: options.retryDelay || 1000,
+    logger: options.logger || consoleLogger,
+    flowsRoot: options.flowsRoot || "./flows",
+    maxConcurrentSteps: options.maxConcurrentSteps || 10,
+  };
+}
+
+async function killProcessOnPort(port: number): Promise<void> {
+  try {
+    // Find process using the port
+    const { execSync } = await import("child_process");
+    const pid = execSync(`lsof -ti:${port} || true`).toString().trim();
+
+    if (pid) {
+      execSync(`kill -9 ${pid}`);
+      // Wait a bit for the process to die
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    this.dataDir = options.dataDir || `/tmp/maxq_test_${Date.now()}`;
-    this.maxRetries = options.maxRetries || 30;
-    this.retryDelay = options.retryDelay || 1000;
-    this.logger = options.logger || consoleLogger;
-    this.flowsRoot = options.flowsRoot || "./flows";
-    this.maxConcurrentSteps = options.maxConcurrentSteps || 10;
+  } catch {
+    // Ignore errors - port might already be free
   }
+}
 
-  getPort(): number {
-    return this.port;
-  }
-
-  private async killProcessOnPort(): Promise<void> {
+async function waitForServer(
+  port: number,
+  maxRetries: number,
+  retryDelay: number,
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
     try {
-      // Find process using the port
-      const { execSync } = await import("child_process");
-      const pid = execSync(`lsof -ti:${this.port} || true`).toString().trim();
+      const response = await fetch(`http://localhost:${port}/health`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
 
-      if (pid) {
-        // Killing process using port
-        execSync(`kill -9 ${pid}`);
-        // Wait a bit for the process to die
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (response.ok) {
+        return;
       }
     } catch {
-      // Ignore errors - port might already be free
+      // Server not ready yet
     }
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
   }
 
-  async start(): Promise<void> {
-    // Kill any process using the port first
-    await this.killProcessOnPort();
+  throw new Error(`Server failed to start after ${maxRetries} attempts`);
+}
 
-    return new Promise((resolve, reject) => {
-      // Starting test server
+export async function startTestServer(server: TestServer): Promise<void> {
+  // Kill any process using the port first
+  await killProcessOnPort(server.port);
 
-      // Set environment variables for test server
-      const env = {
-        ...process.env,
-        NODE_ENV: "test",
-        MAXQ_SERVER_PORT: this.port.toString(),
-        MAXQ_DATA_DIR: this.dataDir,
-        MAXQ_API_KEY: process.env.MAXQ_API_KEY || "test-token",
-        MAXQ_FLOWS_ROOT: this.flowsRoot,
-        MAXQ_MAX_CONCURRENT_STEPS: this.maxConcurrentSteps.toString(), // Set concurrency limit
-        MAXQ_SCHEDULER_INTERVAL_MS: "50", // Faster scheduler for tests to reduce wait times
-        MAXQ_SCHEDULER_BATCH_SIZE: "100", // Process more steps per iteration in tests
+  return new Promise((resolve, reject) => {
+    // Set environment variables for test server
+    const env = {
+      ...process.env,
+      NODE_ENV: "test",
+      MAXQ_SERVER_PORT: server.port.toString(),
+      MAXQ_DATA_DIR: server.dataDir,
+      MAXQ_API_KEY: process.env.MAXQ_API_KEY || "test-token",
+      MAXQ_FLOWS_ROOT: server.flowsRoot,
+      MAXQ_MAX_CONCURRENT_STEPS: server.maxConcurrentSteps.toString(),
+      MAXQ_SCHEDULER_INTERVAL_MS: "50", // Faster scheduler for tests
+      MAXQ_SCHEDULER_BATCH_SIZE: "100", // Process more steps per iteration in tests
+    };
+
+    // Start the server directly
+    const serverPath = new URL(
+      "../../../maxq/dist/bin/server.js",
+      import.meta.url,
+    ).pathname;
+
+    server.process = spawn("node", [serverPath], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: new URL("../../../maxq/dist/bin/", import.meta.url).pathname,
+    });
+
+    let serverStarted = false;
+
+    server.process.stdout?.on("data", (data) => {
+      const output = data.toString();
+      console.log("[SERVER]", output.trim());
+
+      if (output.includes("Server running") || output.includes("started")) {
+        serverStarted = true;
+        resolve();
+      }
+    });
+
+    server.process.stderr?.on("data", (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.error("[SERVER]", output);
+      }
+    });
+
+    server.process.on("error", (error) => {
+      server.logger.error("Failed to start server:", error);
+      reject(error);
+    });
+
+    server.process.on("exit", (code) => {
+      if (!serverStarted && code !== 0) {
+        reject(new Error(`Server exited with code ${code}`));
+      }
+    });
+
+    // Wait for server to be ready
+    waitForServer(server.port, server.maxRetries, server.retryDelay)
+      .then(() => {
+        resolve();
+      })
+      .catch(reject);
+  });
+}
+
+export async function stopTestServer(server: TestServer): Promise<void> {
+  if (server.process) {
+    return new Promise((resolve) => {
+      let resolved = false;
+
+      const cleanup = () => {
+        if (!resolved) {
+          resolved = true;
+          server.process = null;
+          resolve();
+        }
       };
 
-      // Start the server directly
-      // From maxq-test-utils/dist/utils, go to maxq package: ../../../maxq/dist/start-server.js
-      const serverPath = new URL(
-        "../../../maxq/dist/start-server.js",
-        import.meta.url,
-      ).pathname;
+      server.process!.on("exit", cleanup);
 
-      this.process = spawn("node", [serverPath], {
-        env,
-        stdio: ["ignore", "pipe", "inherit"], // Show stderr output directly
-        cwd: new URL("../../../maxq/dist/", import.meta.url).pathname, // maxq dist directory
-      });
+      // Try graceful shutdown
+      server.process!.kill("SIGTERM");
 
-      let serverStarted = false;
-
-      this.process.stdout?.on("data", (data) => {
-        const output = data.toString();
-        // Log all server output for debugging
-        console.log("[SERVER]", output.trim());
-
-        // Check if server is ready
-        if (output.includes("Server running") || output.includes("started")) {
-          serverStarted = true;
-          resolve(); // Resolve immediately when server is ready
+      // Force kill after 2 seconds and resolve
+      setTimeout(async () => {
+        if (server.process && !resolved) {
+          server.process.kill("SIGKILL");
+          await killProcessOnPort(server.port);
+          setTimeout(cleanup, 100);
         }
-      });
-
-      this.process.on("error", (error) => {
-        this.logger.error("Failed to start server:", error);
-        reject(error);
-      });
-
-      this.process.on("exit", (code) => {
-        if (!serverStarted && code !== 0) {
-          reject(new Error(`Server exited with code ${code}`));
-        }
-      });
-
-      // Wait for server to be ready
-      this.waitForServer()
-        .then(() => {
-          // Test server is ready
-          resolve();
-        })
-        .catch(reject);
+      }, 2000);
     });
   }
+}
 
-  private async waitForServer(): Promise<void> {
-    for (let i = 0; i < this.maxRetries; i++) {
-      try {
-        const response = await fetch(`http://localhost:${this.port}/health`, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        });
-
-        if (response.ok) {
-          return;
-        }
-      } catch {
-        // Server not ready yet
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
-    }
-
-    throw new Error(`Server failed to start after ${this.maxRetries} attempts`);
+export async function reconfigureTestServer(
+  server: TestServer,
+  options: Partial<TestServerOptions>,
+): Promise<void> {
+  if (options.flowsRoot !== undefined) {
+    server.flowsRoot = options.flowsRoot;
   }
-
-  async stop(): Promise<void> {
-    if (this.process) {
-      return new Promise((resolve) => {
-        let resolved = false;
-
-        const cleanup = () => {
-          if (!resolved) {
-            resolved = true;
-            this.process = null;
-            resolve();
-          }
-        };
-
-        // Set up exit handler
-        this.process!.on("exit", cleanup);
-
-        // Try graceful shutdown
-        this.process!.kill("SIGTERM");
-
-        // Force kill after 2 seconds and resolve
-        setTimeout(async () => {
-          if (this.process && !resolved) {
-            this.process.kill("SIGKILL");
-            // Also kill any process on the port just to be sure
-            await this.killProcessOnPort();
-            // Give it a moment to actually die
-            setTimeout(cleanup, 100);
-          }
-        }, 2000);
-      });
+  if (options.port !== undefined) {
+    if (options.port === 0) {
+      server.port = generateRandomPort();
+    } else {
+      server.port = options.port;
     }
   }
-
-  async reconfigure(options: Partial<TestServerOptions>): Promise<void> {
-    // Update configuration
-    if (options.flowsRoot !== undefined) {
-      this.flowsRoot = options.flowsRoot;
-    }
-    if (options.port !== undefined) {
-      // Handle port 0 when reconfiguring
-      if (options.port === 0) {
-        this.port = 49152 + Math.floor(Math.random() * (65535 - 49152));
-      } else {
-        this.port = options.port;
-      }
-    }
-    if (options.dataDir !== undefined) {
-      this.dataDir = options.dataDir;
-    }
-    if (options.maxConcurrentSteps !== undefined) {
-      this.maxConcurrentSteps = options.maxConcurrentSteps;
-    }
-
-    // Restart server with new configuration
-    await this.stop();
-    await this.start();
+  if (options.dataDir !== undefined) {
+    server.dataDir = options.dataDir;
   }
+  if (options.maxConcurrentSteps !== undefined) {
+    server.maxConcurrentSteps = options.maxConcurrentSteps;
+  }
+
+  // Restart server with new configuration
+  await stopTestServer(server);
+  await startTestServer(server);
 }

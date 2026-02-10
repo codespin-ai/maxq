@@ -9,7 +9,7 @@ const logger = createLogger("maxq:handlers:runs:get");
  * GET /api/v1/runs/:id - Get a run by ID
  */
 export function getRunHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (req: Request<{ id: string }>, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
 

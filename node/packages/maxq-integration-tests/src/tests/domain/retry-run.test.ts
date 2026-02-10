@@ -8,7 +8,8 @@
  */
 
 import { expect } from "chai";
-import { testDb } from "../../test-setup.js";
+import { testDb, defaultFlowsRoot } from "../../test-setup.js";
+import { truncateAllTables, insertStage, insertStep } from "maxq-test-utils";
 import { retryRun } from "maxq/src/domain/run/retry-run.js";
 import type { DataContext } from "maxq/src/domain/data-context.js";
 import { StepProcessRegistry } from "maxq/src/executor/process-registry.js";
@@ -77,16 +78,17 @@ type StepRetryQueryResult = {
   termination_reason: string | null;
 };
 
-describe("Retry Run Unit Tests", () => {
+describe("Retry Run Unit Tests", function () {
+  this.timeout(10000);
   beforeEach(async () => {
-    await testDb.truncateAllTables();
+    truncateAllTables(testDb);
   });
 
   it("should clear all step queue fields when retrying", async () => {
     const runId = "run-1";
     const stageId = "stage-1";
     const stepId = "step-1";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Insert run first (required for foreign key)
     db.prepare(
@@ -95,7 +97,7 @@ describe("Retry Run Unit Tests", () => {
     ).run(runId, "test-flow", "failed", Date.now(), "aborted");
 
     // Create run with failed step that has stale queue data
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -105,7 +107,7 @@ describe("Retry Run Unit Tests", () => {
       termination_reason: "aborted",
     });
 
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: stepId,
       run_id: runId,
       stage_id: stageId,
@@ -148,7 +150,7 @@ describe("Retry Run Unit Tests", () => {
       db,
       executor: {
         config: {
-          flowsRoot: "/tmp/test-flows",
+          flowsRoot: defaultFlowsRoot,
           maxLogCapture: 8192,
           maxConcurrentSteps: 10,
         },
@@ -191,7 +193,7 @@ describe("Retry Run Unit Tests", () => {
 
   it("should clear run termination_reason when retrying", async () => {
     const runId = "run-2";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create run with termination_reason
     db.prepare(
@@ -215,7 +217,7 @@ describe("Retry Run Unit Tests", () => {
       db,
       executor: {
         config: {
-          flowsRoot: "/tmp/test-flows",
+          flowsRoot: defaultFlowsRoot,
           maxLogCapture: 8192,
           maxConcurrentSteps: 10,
         },
@@ -245,7 +247,7 @@ describe("Retry Run Unit Tests", () => {
   it("should clear stage fields when retrying", async () => {
     const runId = "run-3";
     const stageId = "stage-3";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create run
     db.prepare(
@@ -254,7 +256,7 @@ describe("Retry Run Unit Tests", () => {
     ).run(runId, "test-flow", "failed", Date.now(), "aborted");
 
     // Create stage with stale timing data
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -284,7 +286,7 @@ describe("Retry Run Unit Tests", () => {
       db,
       executor: {
         config: {
-          flowsRoot: "/tmp/test-flows",
+          flowsRoot: defaultFlowsRoot,
           maxLogCapture: 8192,
           maxConcurrentSteps: 10,
         },
@@ -318,7 +320,7 @@ describe("Retry Run Unit Tests", () => {
     const stageId = "stage-4";
     const completedStepId = "completed-step";
     const failedStepId = "failed-step";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create run
     db.prepare(
@@ -327,7 +329,7 @@ describe("Retry Run Unit Tests", () => {
     ).run(runId, "test-flow", "failed", Date.now(), "aborted");
 
     // Create stage
-    await testDb.insertStage({
+    insertStage(testDb, {
       id: stageId,
       run_id: runId,
       name: "test-stage",
@@ -338,7 +340,7 @@ describe("Retry Run Unit Tests", () => {
     });
 
     // Create a completed step (should NOT be reset)
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: completedStepId,
       run_id: runId,
       stage_id: stageId,
@@ -354,7 +356,7 @@ describe("Retry Run Unit Tests", () => {
     });
 
     // Create a failed step (should be reset)
-    await testDb.insertStep({
+    insertStep(testDb, {
       id: failedStepId,
       run_id: runId,
       stage_id: stageId,
@@ -372,7 +374,7 @@ describe("Retry Run Unit Tests", () => {
       db,
       executor: {
         config: {
-          flowsRoot: "/tmp/test-flows",
+          flowsRoot: defaultFlowsRoot,
           maxLogCapture: 8192,
           maxConcurrentSteps: 10,
         },
@@ -413,7 +415,7 @@ describe("Retry Run Unit Tests", () => {
 
   it("should reject retry for completed runs", async () => {
     const runId = "run-5";
-    const db = testDb.getDb();
+    const db = testDb.db;
 
     // Create completed run
     db.prepare(
@@ -426,7 +428,7 @@ describe("Retry Run Unit Tests", () => {
       db,
       executor: {
         config: {
-          flowsRoot: "/tmp/test-flows",
+          flowsRoot: defaultFlowsRoot,
           maxLogCapture: 8192,
           maxConcurrentSteps: 10,
         },

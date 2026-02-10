@@ -1,5 +1,14 @@
 # CLAUDE.md
 
+**NEVER DEPLOY WITHOUT EXPLICIT USER INSTRUCTION**: Deployments to production are STRICTLY FORBIDDEN unless the user explicitly says to deploy. This is a live system with active users. No exceptions — never run deploy scripts, push to production, or trigger any deployment pipeline without a direct, explicit instruction from the user.
+
+**sed USAGE**
+
+NEVER USE sed TO BULK REPLACE
+NEVER USE sed TO BULK REPLACE
+NEVER USE sed TO BULK REPLACE
+NEVER USE sed TO BULK REPLACE
+
 This file provides guidance to Claude Code (claude.ai/code) when working with the MaxQ codebase.
 
 ## Critical Guidelines
@@ -100,6 +109,54 @@ When you hit a blocker:
 3. Stop and ask for direction
 
 Workarounds hide problems and create technical debt. The correct response to a bug is to fix it or explicitly defer it - never to silently work around it.
+
+### NEVER COMMIT DIRECTLY TO MAIN
+
+**CRITICAL**: ALL changes must be made on a feature branch, never directly on main.
+
+- Always create a new branch before making changes (e.g., `feature/add-reporting`, `fix/auction-notifications`)
+- Push the feature branch and create a pull request
+- Only merge to main after user approval
+
+### NEVER COMMIT WITHOUT ALL TESTS PASSING
+
+**CRITICAL**: ALL tests must pass in BOTH local mode AND Docker Compose mode before committing.
+
+- Run `./scripts/test-integration.sh local` and verify all tests pass
+- Run `./scripts/test-integration.sh compose` and verify all tests pass in Docker
+- If Docker Compose tests fail due to schema changes, rebuild Docker images first: `./scripts/docker-build.sh`
+- No exceptions - if tests fail, fix them before committing
+
+### NEVER BLAME "PRE-EXISTING FAILURES"
+
+**CRITICAL**: The excuse "these are pre-existing failures" is NEVER acceptable.
+
+- If tests fail, they must be fixed - period
+- If you introduced code that breaks tests, fix your code
+- If tests were already broken before your changes, fix those tests too
+- The codebase must always be in a clean, passing state
+- "It was already broken" is not a valid excuse for leaving things broken
+
+### Monitoring Long-Running Operations
+
+When running background operations like deploys, builds, or tests:
+
+- **Check output at most every 30 seconds** - Do not poll in a tight loop
+- **Be patient with slow operations** - Docker builds and deploys take time
+- **Report progress periodically** - Let the user know when operations complete
+
+### Linting and Code Quality Standards
+
+**CRITICAL**: NEVER weaken linting, testing, or type-checking rules:
+
+- **NO eslint-disable comments** - Fix the actual issues instead of suppressing warnings
+- **NO test.skip or test.only in committed code** - All tests must run and pass
+- **NO @ts-expect-error or @ts-ignore** - Fix type errors properly
+- **NO relaxing TypeScript strict mode** - Maintain full type safety
+- **NO lowering code coverage thresholds** - Improve coverage instead
+- **NO weakening any quality gates** - Standards exist for a reason
+
+When you encounter linting, type, or test errors, the solution is ALWAYS to fix the underlying issue properly, never to suppress or bypass the error. Quality standards are non-negotiable.
 
 ### NEVER USE AUTOMATED SCRIPTS FOR FIXES
 

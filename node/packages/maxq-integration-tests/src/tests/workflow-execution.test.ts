@@ -6,16 +6,24 @@
 import { describe, it, beforeEach, afterEach } from "mocha";
 import { expect } from "chai";
 import { testDb, client, testServer } from "../test-setup.js";
+import {
+  truncateAllTables,
+  waitForQuery,
+  reconfigureTestServer,
+  httpGet,
+  httpPost,
+} from "maxq-test-utils";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Run } from "maxq";
 
-describe("Workflow Execution E2E", () => {
+describe("Workflow Execution E2E", function () {
+  this.timeout(30000);
   let flowsRoot: string;
 
   beforeEach(async () => {
-    await testDb.truncateAllTables();
+    truncateAllTables(testDb);
     flowsRoot = await mkdtemp(join(tmpdir(), "maxq-workflow-test-"));
   });
 
@@ -30,12 +38,12 @@ describe("Workflow Execution E2E", () => {
     while (retries < 50) {
       try {
         // Check for any non-terminal runs (pending or running)
-        const pendingResponse = await client.get<{
+        const pendingResponse = await httpGet<{
           pagination: { total: number };
-        }>("/api/v1/runs?status=pending&limit=1");
-        const runningResponse = await client.get<{
+        }>(client, "/api/v1/runs?status=pending&limit=1");
+        const runningResponse = await httpGet<{
           pagination: { total: number };
-        }>("/api/v1/runs?status=running&limit=1");
+        }>(client, "/api/v1/runs?status=running&limit=1");
 
         const pendingCount = pendingResponse.data?.pagination?.total || 0;
         const runningCount = runningResponse.data?.pagination?.total || 0;
@@ -95,10 +103,10 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server to use our temp flows directory
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run via API
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "simple-flow",
       input: { test: "data" },
     });
@@ -107,10 +115,11 @@ exit 0
     const runId = createResponse.data.id;
 
     // Wait for run to complete (status changes from 'pending' to 'completed')
-    const completedRuns = await testDb.waitForQuery<
+    const completedRuns = await waitForQuery<
       { runId: string; status: string },
       { id: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -124,15 +133,16 @@ exit 0
     expect(completedRuns[0]!.status).to.equal("completed");
 
     // Verify run details
-    const runResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+    const runResponse = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
     expect(runResponse.data.status).to.equal("completed");
     expect(runResponse.data.flowName).to.equal("simple-flow");
 
     // Verify stage was created
-    const stages = await testDb.waitForQuery<
+    const stages = await waitForQuery<
       { runId: string },
       { name: string; status: string; final: boolean }
     >(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -147,7 +157,7 @@ exit 0
     expect(stages[0]!.final).to.equal(true);
 
     // Verify step was created with stdout/stderr
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       {
         name: string;
@@ -156,6 +166,7 @@ exit 0
         stderr: string;
       }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -230,20 +241,18 @@ echo "Executed ${stepName}"
     }
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "multi-stage-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to complete
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { id: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -254,10 +263,11 @@ echo "Executed ${stepName}"
     );
 
     // Verify both stages were created
-    const stages = await testDb.waitForQuery<
+    const stages = await waitForQuery<
       { runId: string },
       { name: string; status: string; final: boolean }
     >(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -275,10 +285,8 @@ echo "Executed ${stepName}"
     expect(stages[1]!.final).to.equal(true);
 
     // Verify both steps were created
-    const steps = await testDb.waitForQuery<
-      { runId: string },
-      { name: string }
-    >(
+    const steps = await waitForQuery<{ runId: string }, { name: string }>(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -336,20 +344,21 @@ echo "Executed ${stepName}"
     }
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "dag-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for all 4 steps to complete
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { name: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -369,10 +378,8 @@ echo "Executed ${stepName}"
     expect(stepNames).to.deep.equal(["aggregate", "init", "task-a", "task-b"]);
 
     // Verify run completed
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { id: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -425,20 +432,21 @@ exit 1
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "failing-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to fail
-    const failedRuns = await testDb.waitForQuery<
+    const failedRuns = await waitForQuery<
       { runId: string; status: string },
       { status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -452,10 +460,8 @@ exit 1
     expect(failedRuns[0]!.status).to.equal("failed");
 
     // Verify stage was marked as failed
-    const stages = await testDb.waitForQuery<
-      { runId: string },
-      { status: string }
-    >(
+    const stages = await waitForQuery<{ runId: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -472,10 +478,11 @@ exit 1
     expect(stages[0]!.status).to.equal("failed");
 
     // Verify step was marked as failed with stdout
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { status: string; stdout: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -541,10 +548,10 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "retry-flow",
     });
 
@@ -552,10 +559,11 @@ exit 0
 
     // Wait for step to complete after retries
     // Increase timeout to allow for 3 execution attempts (each can take ~1 second)
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { status: string; retry_count: number; stdout: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -581,10 +589,8 @@ exit 0
     expect(steps[0]!.stdout).to.include("Success on attempt 3");
 
     // Verify run completed
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { id: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -639,20 +645,21 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "fields-ignored-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for run to complete - should be COMPLETED despite fields.status="failed"
-    const runs = await testDb.waitForQuery<
+    const runs = await waitForQuery<
       { runId: string; status: string },
       { status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -666,10 +673,8 @@ exit 0
     expect(runs[0]!.status).to.equal("completed");
 
     // Verify stage also completed (not failed)
-    const stages = await testDb.waitForQuery<
-      { runId: string },
-      { status: string }
-    >(
+    const stages = await waitForQuery<{ runId: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -682,10 +687,11 @@ exit 0
     expect(stages[0]!.status).to.equal("completed");
 
     // Verify step is completed (exit code 0 wins, not fields.status)
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { status: string; fields: unknown }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -712,12 +718,12 @@ exit 0
     await chmod(flowScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Try to schedule stage for non-existent run
     const fakeRunId = "00000000-0000-0000-0000-000000000000";
 
-    const response = await client.post(`/api/v1/runs/${fakeRunId}/steps`, {
+    const response = await httpPost(client, `/api/v1/runs/${fakeRunId}/steps`, {
       stage: "dummy",
       final: true,
       steps: [
@@ -736,7 +742,8 @@ exit 0
 
     // Verify no stage or step records were created (transaction rolled back)
     // Use waitForQuery with immediate condition check
-    const stages = await testDb.waitForQuery<{ runId: string }, { id: string }>(
+    const stages = await waitForQuery<{ runId: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -747,7 +754,8 @@ exit 0
     );
     expect(stages).to.have.lengthOf(0);
 
-    const steps = await testDb.waitForQuery<{ runId: string }, { id: string }>(
+    const steps = await waitForQuery<{ runId: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -805,10 +813,10 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "titled-flow",
     });
 
@@ -819,10 +827,8 @@ exit 0
     expect(createResponse.data.flowTitle).to.equal("Market Analysis Pipeline");
 
     // Wait for run to complete
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { id: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -833,7 +839,7 @@ exit 0
     );
 
     // Verify flowTitle persisted in database
-    const runResponse = await client.get<Run>(`/api/v1/runs/${runId}`);
+    const runResponse = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
     expect(runResponse.data.flowTitle).to.equal("Market Analysis Pipeline");
   });
 
@@ -877,17 +883,18 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "abort-retry-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for stage to be created (means flow.sh was executed)
-    await testDb.waitForQuery<{ runId: string }, { id: string; name: string }>(
+    await waitForQuery<{ runId: string }, { id: string; name: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -898,7 +905,8 @@ exit 0
     );
 
     // Wait for step to be created and start running
-    await testDb.waitForQuery<{ runId: string }, { id: string; name: string }>(
+    await waitForQuery<{ runId: string }, { id: string; name: string }>(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -912,14 +920,19 @@ exit 0
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Abort the run
-    const abortResponse = await client.post(`/api/v1/runs/${runId}/abort`, {});
+    const abortResponse = await httpPost(
+      client,
+      `/api/v1/runs/${runId}/abort`,
+      {},
+    );
     expect(abortResponse.status).to.equal(200);
 
     // Verify run was aborted
-    const abortedRun = await testDb.waitForQuery<
+    const abortedRun = await waitForQuery<
       { runId: string },
       { status: string; termination_reason: string | null }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -943,7 +956,7 @@ exit 0
     expect(abortedRun[0]!.termination_reason).to.equal("aborted");
 
     // Verify stage was marked as failed with termination_reason=aborted
-    const abortedStages = await testDb.waitForQuery<
+    const abortedStages = await waitForQuery<
       { runId: string },
       {
         name: string;
@@ -953,6 +966,7 @@ exit 0
         completed_at: number | null;
       }
     >(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -976,7 +990,11 @@ exit 0
     const stageStartedAtBeforeRetry = abortedStages[0]!.started_at;
 
     // Retry the run
-    const retryResponse = await client.post(`/api/v1/runs/${runId}/retry`, {});
+    const retryResponse = await httpPost(
+      client,
+      `/api/v1/runs/${runId}/retry`,
+      {},
+    );
     expect(retryResponse.status).to.equal(200);
 
     // NOTE: We don't check the transient "pending with cleared termination_reason" state
@@ -985,7 +1003,7 @@ exit 0
     // properly clears run/stage/step fields. This integration test verifies end-to-end behavior.
 
     // Verify stage was reset to pending with timing fields cleared (FIX #4)
-    const retriedStages = await testDb.waitForQuery<
+    const retriedStages = await waitForQuery<
       { runId: string },
       {
         name: string;
@@ -995,6 +1013,7 @@ exit 0
         completed_at: number | null;
       }
     >(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -1035,10 +1054,8 @@ exit 0
     // Wait for run to complete after retry
     // FIX #1: Flow will schedule same stage again, should reuse existing record
     // FIX #2: Server prevents scheduling into aborted runs, retry resets this
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { status: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -1049,15 +1066,16 @@ exit 0
     );
 
     // Verify final state
-    const finalRun = await client.get<Run>(`/api/v1/runs/${runId}`);
+    const finalRun = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
     expect(finalRun.data.status).to.equal("completed");
     expect(finalRun.data.terminationReason).to.equal(undefined);
 
     // Verify we still have exactly one stage (reused, not created twice - FIX #1)
-    const finalStages = await testDb.waitForQuery<
+    const finalStages = await waitForQuery<
       { runId: string },
       { name: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -1071,10 +1089,11 @@ exit 0
     expect(finalStages[0]!.status).to.equal("completed");
 
     // Verify we still have exactly one step (reused, not created twice - FIX #1)
-    const finalSteps = await testDb.waitForQuery<
+    const finalSteps = await waitForQuery<
       { runId: string },
       { name: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -1149,17 +1168,18 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run - should fail
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "retry-after-failure-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for stage to be created and fail
-    await testDb.waitForQuery<{ runId: string }, { status: string }>(
+    await waitForQuery<{ runId: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -1173,10 +1193,8 @@ exit 0
     );
 
     // Wait for run to fail
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { status: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -1187,19 +1205,21 @@ exit 0
     );
 
     // Verify run failed naturally (not aborted)
-    const failedRun = await client.get<Run>(`/api/v1/runs/${runId}`);
+    const failedRun = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
     expect(failedRun.data.status).to.equal("failed");
     expect(failedRun.data.terminationReason).to.equal(undefined);
 
     // Retry the run
-    const retryResponse = await client.post(`/api/v1/runs/${runId}/retry`, {});
+    const retryResponse = await httpPost(
+      client,
+      `/api/v1/runs/${runId}/retry`,
+      {},
+    );
     expect(retryResponse.status).to.equal(200);
 
     // Wait for run to complete successfully after retry
-    await testDb.waitForQuery<
-      { runId: string; status: string },
-      { status: string }
-    >(
+    await waitForQuery<{ runId: string; status: string }, { status: string }>(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -1210,15 +1230,16 @@ exit 0
     );
 
     // Verify final state
-    const completedRun = await client.get<Run>(`/api/v1/runs/${runId}`);
+    const completedRun = await httpGet<Run>(client, `/api/v1/runs/${runId}`);
     expect(completedRun.data.status).to.equal("completed");
     expect(completedRun.data.terminationReason).to.equal(undefined);
 
     // Verify stage completed on retry
-    const stages = await testDb.waitForQuery<
+    const stages = await waitForQuery<
       { runId: string },
       { name: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -1232,10 +1253,11 @@ exit 0
     expect(stages[0]!.status).to.equal("completed");
 
     // Verify step completed on retry (not duplicate step created)
-    const steps = await testDb.waitForQuery<
+    const steps = await waitForQuery<
       { runId: string },
       { name: string; status: string }
     >(
+      testDb,
       (q, p) =>
         q
           .from("step")
@@ -1287,17 +1309,18 @@ exit 0
     await chmod(stepScript, 0o755);
 
     // Reconfigure server
-    await testServer.reconfigure({ flowsRoot });
+    await reconfigureTestServer(testServer, { flowsRoot });
 
     // Create run
-    const createResponse = await client.post<Run>("/api/v1/runs", {
+    const createResponse = await httpPost<Run>(client, "/api/v1/runs", {
       flowName: "abort-guard-flow",
     });
 
     const runId = createResponse.data.id;
 
     // Wait for stage to be created
-    await testDb.waitForQuery<{ runId: string }, { id: string }>(
+    await waitForQuery<{ runId: string }, { id: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")
@@ -1308,13 +1331,14 @@ exit 0
     );
 
     // Abort the run
-    await client.post(`/api/v1/runs/${runId}/abort`, {});
+    await httpPost(client, `/api/v1/runs/${runId}/abort`, {});
 
     // Wait for abort to complete
-    await testDb.waitForQuery<
+    await waitForQuery<
       { runId: string },
       { status: string; termination_reason: string | null }
     >(
+      testDb,
       (q, p) =>
         q
           .from("run")
@@ -1334,18 +1358,22 @@ exit 0
     );
 
     // FIX #2: Try to schedule another stage (should be rejected)
-    const scheduleResponse = await client.post(`/api/v1/runs/${runId}/steps`, {
-      stage: "blocked-stage",
-      final: true,
-      steps: [
-        {
-          id: "blocked-step",
-          name: "blocked-step",
-          dependsOn: [],
-          maxRetries: 0,
-        },
-      ],
-    });
+    const scheduleResponse = await httpPost(
+      client,
+      `/api/v1/runs/${runId}/steps`,
+      {
+        stage: "blocked-stage",
+        final: true,
+        steps: [
+          {
+            id: "blocked-step",
+            name: "blocked-step",
+            dependsOn: [],
+            maxRetries: 0,
+          },
+        ],
+      },
+    );
 
     // Should reject with 400
     expect(scheduleResponse.status).to.equal(400);
@@ -1355,10 +1383,8 @@ exit 0
     );
 
     // Verify no new stage was created (still only have the original one)
-    const stages = await testDb.waitForQuery<
-      { runId: string },
-      { name: string }
-    >(
+    const stages = await waitForQuery<{ runId: string }, { name: string }>(
+      testDb,
       (q, p) =>
         q
           .from("stage")

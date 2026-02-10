@@ -15,7 +15,10 @@ const logger = createLogger("maxq:handlers:runs:abort");
  * Kills all running processes and marks incomplete work as failed
  */
 export function abortRunHandler(ctx: DataContext, abortGraceMs: number) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId } = req.params;
       if (!runId) {

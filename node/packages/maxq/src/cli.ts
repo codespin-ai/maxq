@@ -57,13 +57,13 @@ const sqlitePath = resolve(dataDir, "maxq.db");
 
 // Ensure data directory exists
 if (!existsSync(dataDir)) {
-  console.log(`Creating data directory: ${dataDir}`);
+  console.info(`Creating data directory: ${dataDir}`);
   mkdirSync(dataDir, { recursive: true });
 }
 
 // Ensure flows directory exists
 if (!existsSync(flowsRoot)) {
-  console.log(`Creating flows directory: ${flowsRoot}`);
+  console.info(`Creating flows directory: ${flowsRoot}`);
   mkdirSync(flowsRoot, { recursive: true });
 }
 
@@ -78,20 +78,20 @@ process.env.MAXQ_SCHEDULER_BATCH_SIZE = options.schedulerBatchSize;
 process.env.MAXQ_ABORT_GRACE_MS = options.abortGraceMs;
 process.env.LOG_LEVEL = options.logLevel;
 
-console.log("MaxQ Configuration:");
-console.log(`  Port: ${options.port}`);
-console.log(`  Database: ${sqlitePath}`);
-console.log(`  Flows: ${flowsRoot}`);
-console.log(`  Max Concurrent Steps: ${options.maxConcurrentSteps}`);
-console.log(`  Log Level: ${options.logLevel}`);
-console.log("");
+console.info("MaxQ Configuration:");
+console.info(`  Port: ${options.port}`);
+console.info(`  Database: ${sqlitePath}`);
+console.info(`  Flows: ${flowsRoot}`);
+console.info(`  Max Concurrent Steps: ${options.maxConcurrentSteps}`);
+console.info(`  Log Level: ${options.logLevel}`);
+console.info("");
 
 // Run migrations before starting server
 import { runMigrations } from "./lib/db/migrations.js";
 
 try {
   await runMigrations(sqlitePath);
-  console.log("Database migrations completed successfully");
+  console.info("Database migrations completed successfully");
 } catch (error) {
   console.error("Failed to run database migrations:", error);
   process.exit(1);

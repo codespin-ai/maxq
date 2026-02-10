@@ -15,7 +15,10 @@ const logger = createLogger("maxq:handlers:runs:pause");
  * Kills all running processes and marks run as paused
  */
 export function pauseRunHandler(ctx: DataContext, pauseGraceMs: number) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId } = req.params;
       if (!runId) {

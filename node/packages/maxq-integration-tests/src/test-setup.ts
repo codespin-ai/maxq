@@ -1,33 +1,35 @@
 import {
-  TestDatabase,
-  TestServer,
-  TestHttpClient,
+  type TestDatabase,
+  type TestServer,
+  type TestHttpClient,
+  getTestDatabaseInstance,
+  getExternalTestDatabaseInstance,
+  setupTestDatabase,
+  teardownTestDatabase,
+  truncateAllTables,
+  clearTestDatabaseInstance,
+  createTestServer,
+  startTestServer,
+  stopTestServer,
+  createTestHttpClient,
+  httpGet,
   testLogger,
 } from "maxq-test-utils";
 import type { PaginatedResult, Run } from "maxq";
 import { mkdir, writeFile, chmod } from "fs/promises";
 import { join, dirname } from "path";
 
-// Test configuration
-export const testDb = new TestDatabase({
-  logger: testLogger,
-});
+// Exported state
+export let testDb: TestDatabase;
+export let testServer: TestServer;
+export let client: TestHttpClient;
+export let defaultFlowsRoot: string;
 
-// Compute flows root for server - must match where we create dummy flows
-// import.meta.url points to src/test-setup.ts when running with ts-node
-// Go up to packages/maxq-integration-tests, then to test-flows
-const currentFile = new URL(import.meta.url).pathname;
-const srcDir = join(currentFile, ".."); // src/
-const packageRoot = join(srcDir, ".."); // maxq-integration-tests/
-export const defaultFlowsRoot = join(packageRoot, "test-flows");
+let initialized = false;
 
-export const testServer = new TestServer({
-  port: 5099,
-  dataDir: dirname(testDb.getDbPath()),
-  logger: testLogger,
-  flowsRoot: defaultFlowsRoot,
-});
-export const client = new TestHttpClient(`http://localhost:5099`);
+// Check for external mode
+const externalTestUrl = process.env.TEST_URL;
+const externalDbPath = process.env.TEST_DB_PATH;
 
 /**
  * Wait for all active flows to complete by polling the API
@@ -44,12 +46,14 @@ async function waitForActiveFlows(): Promise<void> {
   while (Date.now() - startTime < maxWait) {
     try {
       // Check for pending runs
-      const pendingResponse = await client.get<PaginatedResult<Run>>(
+      const pendingResponse = await httpGet<PaginatedResult<Run>>(
+        client,
         "/api/v1/runs?status=pending&limit=10",
       );
 
       // Check for running runs
-      const runningResponse = await client.get<PaginatedResult<Run>>(
+      const runningResponse = await httpGet<PaginatedResult<Run>>(
+        client,
         "/api/v1/runs?status=running&limit=10",
       );
 
@@ -116,7 +120,6 @@ async function createDummyFlows(): Promise<void> {
     ];
 
     // Minimal valid flow that exits immediately without scheduling anything
-    // This prevents the scheduler from getting stuck waiting for stages to complete
     const flowScript = `#!/bin/bash
 # Exit immediately with success
 # When MAXQ_COMPLETED_STAGE is empty (first call), we can choose to:
@@ -142,45 +145,67 @@ exit 0
   }
 }
 
-// Setup before all tests
-before(async function () {
-  this.timeout(60000); // 60 seconds for setup
+async function setupTests(): Promise<void> {
+  if (initialized) return;
 
-  testLogger.info("🚀 Starting MaxQ integration test setup...");
+  // Compute flows root
+  const currentFile = new URL(import.meta.url).pathname;
+  const packageRoot = join(currentFile, "../..");
+  defaultFlowsRoot = join(packageRoot, "test-flows");
 
   // Create dummy flows for API tests
   await createDummyFlows();
 
-  // Setup database
-  await testDb.setup();
+  if (externalTestUrl !== undefined && externalDbPath !== undefined) {
+    // External mode
+    testDb = getExternalTestDatabaseInstance(externalDbPath, testLogger);
+    await setupTestDatabase(testDb);
 
-  // Start the real MaxQ server
-  await testServer.start();
+    client = createTestHttpClient(externalTestUrl);
+  } else {
+    // Local mode
+    testDb = getTestDatabaseInstance(testLogger);
+    await setupTestDatabase(testDb);
 
-  testLogger.info("✅ MaxQ integration test setup complete");
-});
+    testServer = createTestServer({
+      port: 5099,
+      dataDir: dirname(testDb.dbPath),
+      logger: testLogger,
+      flowsRoot: defaultFlowsRoot,
+    });
+    await startTestServer(testServer);
 
-// Cleanup after each test
-afterEach(async function () {
-  // Wait for all active flows to complete by polling the server API
-  // This works across process boundaries (test process -> spawned server)
-  await waitForActiveFlows();
+    client = createTestHttpClient(`http://localhost:5099`);
+  }
 
-  // Now it's safe to truncate tables
-  await testDb.truncateAllTables();
-});
+  initialized = true;
+}
 
-// Teardown after all tests
-after(async function () {
-  this.timeout(30000); // 30 seconds for teardown
+async function teardownTests(): Promise<void> {
+  if (!initialized) return;
+  await stopTestServer(testServer);
+  await teardownTestDatabase(testDb);
+  initialized = false;
+  clearTestDatabaseInstance();
+}
 
-  testLogger.info("🛑 Shutting down MaxQ integration tests...");
+function cleanupBetweenTests(): void {
+  truncateAllTables(testDb);
+}
 
-  // Stop server
-  await testServer.stop();
+export function setupGlobalHooks(): void {
+  before(async function () {
+    this.timeout(60000);
+    await setupTests();
+  });
 
-  // Cleanup database
-  await testDb.cleanup();
+  afterEach(async function () {
+    await waitForActiveFlows();
+    cleanupBetweenTests();
+  });
 
-  testLogger.info("✅ MaxQ integration test teardown complete");
-});
+  after(async function () {
+    this.timeout(30000);
+    await teardownTests();
+  });
+}

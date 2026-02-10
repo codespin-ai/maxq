@@ -7,8 +7,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test:build": "tsc --noEmit",
-    "test": "LOG_LEVEL=error mocha --timeout 120000",
-    "test:grep": "LOG_LEVEL=error mocha --timeout 120000 --grep",
+    "test": "NODE_OPTIONS='--import tsx' LOG_LEVEL=error mocha src/index.ts --timeout 60000 --exit",
+    "test:grep": "NODE_OPTIONS='--import tsx' LOG_LEVEL=error mocha src/index.ts --timeout 60000 --exit --grep",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix"
   },

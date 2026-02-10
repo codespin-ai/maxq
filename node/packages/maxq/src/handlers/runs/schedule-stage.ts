@@ -34,7 +34,10 @@ export const scheduleStageSchema = z.object({
  * Called by flow.sh via HTTP API to schedule stages
  */
 export function scheduleStageHandler(ctx: DataContext) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (
+    req: Request<{ runId: string }>,
+    res: Response,
+  ): Promise<void> => {
     try {
       const { runId } = req.params;
       if (!runId) {
