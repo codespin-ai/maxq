@@ -211,10 +211,10 @@ const product = await db.one<ProductDbRow>(
 
 #### SQL Helper Functions
 
-Use the `sql.insert()` and `sql.update()` helper functions from `@codespin/foreman-db` to construct SQL statements safely and consistently:
+Use the `sql.insert()` and `sql.update()` helper functions from `@agilehead/maxq-db` to construct SQL statements safely and consistently:
 
 ```typescript
-import { sql } from "@codespin/foreman-db";
+import { sql } from "@agilehead/maxq-db";
 
 // ✅ Good - Using sql.insert() helper
 const params = {

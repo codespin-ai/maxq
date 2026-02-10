@@ -20,11 +20,8 @@ fi
 
 # Define packages
 PACKAGES=(
-  "maxq-core"
-  "maxq-logger"
-  "maxq-db"
-  "maxq-server"
-  "maxq-client"
+  "maxq"
+  "maxq-test-utils"
   "maxq-integration-tests"
 )
 
@@ -41,31 +38,31 @@ for pkg_name in "${PACKAGES[@]}"; do
   # Check if lint script exists
   if node -e "process.exit(require('./$pkg/package.json').scripts?.lint ? 0 : 1)"; then
     echo ""
-    echo "Linting @codespin/$pkg_name..."
+    echo "Linting @agilehead/$pkg_name..."
     # Try lint:fix first if --fix flag is set, otherwise use lint
     if [[ -n "$FIX_FLAG" ]]; then
       # Check if lint:fix script exists
       if node -e "process.exit(require('./$pkg/package.json').scripts?.['lint:fix'] ? 0 : 1)"; then
         if (cd "$pkg" && npm run lint:fix); then
-          echo "✓ @codespin/$pkg_name lint fixed"
+          echo "✓ @agilehead/$pkg_name lint fixed"
         else
-          echo "✗ @codespin/$pkg_name lint:fix failed"
+          echo "✗ @agilehead/$pkg_name lint:fix failed"
           all_passed=false
         fi
       else
         # Fall back to lint with --fix flag
         if (cd "$pkg" && npm run lint -- --fix); then
-          echo "✓ @codespin/$pkg_name lint fixed"
+          echo "✓ @agilehead/$pkg_name lint fixed"
         else
-          echo "✗ @codespin/$pkg_name lint --fix failed"
+          echo "✗ @agilehead/$pkg_name lint --fix failed"
           all_passed=false
         fi
       fi
     else
       if (cd "$pkg" && npm run lint); then
-        echo "✓ @codespin/$pkg_name lint passed"
+        echo "✓ @agilehead/$pkg_name lint passed"
       else
-        echo "✗ @codespin/$pkg_name lint failed"
+        echo "✗ @agilehead/$pkg_name lint failed"
         all_passed=false
       fi
     fi

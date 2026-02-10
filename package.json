@@ -1,15 +1,22 @@
 {
-  "name": "@codespin/maxq",
+  "name": "@agilehead/maxq",
   "version": "0.0.6",
   "description": "DAG-based workflow orchestration engine with filesystem flow discovery",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "node/packages/*"
+  ],
   "scripts": {
     "build": "./scripts/build.sh",
     "clean": "./scripts/clean.sh",
     "start": "./scripts/start.sh",
     "test": "cd node/packages/maxq-integration-tests && npm test",
-    "test:grep": "cd node/packages/maxq-integration-tests && npm run test:grep"
+    "test:grep": "cd node/packages/maxq-integration-tests && npm run test:grep",
+    "migrate:maxq:latest": "knex migrate:latest --knexfile database/maxq/knexfile.js",
+    "migrate:maxq:rollback": "knex migrate:rollback --knexfile database/maxq/knexfile.js",
+    "migrate:maxq:status": "knex migrate:status --knexfile database/maxq/knexfile.js",
+    "migrate:maxq:make": "knex migrate:make --knexfile database/maxq/knexfile.js"
   },
   "devDependencies": {
     "@types/chai": "^5.2.2",

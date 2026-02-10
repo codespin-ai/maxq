@@ -7,7 +7,7 @@ import { expect } from "chai";
 import { TestDatabase, TestServer, TestHttpClient } from "maxq-test-utils";
 import { mkdtemp, writeFile, chmod, rm, mkdir } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
 import type { Run } from "maxq";
 
 describe("Scheduler Concurrency Limit", () => {
@@ -25,7 +25,7 @@ describe("Scheduler Concurrency Limit", () => {
 
     // Create test server with LOW concurrency limit
     testServer = new TestServer({
-      dbPath: testDb.getDbPath(), // Use the same database file as testDb
+      dataDir: dirname(testDb.getDbPath()),
       flowsRoot: "/tmp/flows",
       port: 0, // Random port
       maxConcurrentSteps: 2, // CRITICAL: Only allow 2 concurrent steps

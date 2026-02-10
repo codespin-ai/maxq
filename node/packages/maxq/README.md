@@ -371,7 +371,7 @@ GET /api/v1/runs/:runId/logs?level=error&entityType=step&limit=100
 Configure the server via environment variables:
 
 - `MAXQ_SERVER_PORT` - Server port (default: 5003)
-- `MAXQ_SQLITE_PATH` - SQLite database path (default: `./data/maxq.db`)
+- `MAXQ_DATA_DIR` - Data directory for SQLite database (default: `./data`)
 - `MAXQ_FLOWS_ROOT` - Flows directory (default: `./flows`)
 - `MAXQ_API_KEY` - Bearer token for authentication (default: `test-token`)
 - `MAXQ_MAX_CONCURRENT_STEPS` - Max parallel step execution (default: 10)
@@ -551,7 +551,7 @@ MaxQ uses SQLite with the following main tables:
 - `artifact` - Data produced by steps
 - `run_log` - Log entries associated with runs
 
-Database file location is configurable via `--data-dir` CLI option or `MAXQ_SQLITE_PATH` environment variable.
+Database file location is configurable via `--data-dir` CLI option or `MAXQ_DATA_DIR` environment variable.
 
 ## Process Execution
 

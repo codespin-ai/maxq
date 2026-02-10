@@ -290,9 +290,16 @@ If you write mutable code, you MUST immediately rewrite it functionally.
 ./scripts/format-all.sh --check # Check formatting without changing files
 
 # Docker commands
-./scripts/docker-build.sh       # Build Docker image
+./scripts/docker-build.sh       # Build Docker images (migrations + production)
 ./scripts/docker-test.sh        # Test Docker image
-./scripts/docker-push.sh latest ghcr.io/codespin-ai  # Push to registry
+./scripts/docker-push.sh        # Push to GHCR
+
+# Integration testing
+./scripts/test-integration.sh local    # Run tests locally
+./scripts/test-integration.sh compose  # Run tests with Docker Compose
+
+# Service management
+./scripts/stop-all.sh           # Stop all MaxQ services and free ports
 ```
 
 ### Database Commands
@@ -309,12 +316,6 @@ npm run migrate:maxq:make migration_name
 # Run migrations (ONLY when explicitly asked)
 npm run migrate:maxq:latest
 npm run migrate:maxq:rollback
-
-# Create seed file (safe to run)
-npm run seed:maxq:make seed_name
-
-# Run seeds (ONLY when explicitly asked)
-npm run seed:maxq:run
 ```
 
 ### Testing Commands
@@ -778,13 +779,12 @@ See **Task Management with .todos Directory** in Session Startup section for det
 
 ### Adding a New Domain Entity
 
-1. Add types to `maxq-server/src/types.ts`
-2. Create migration in `/database/maxq/migrations/`
-3. Add mapper functions to `maxq-server/src/mappers.ts`
-4. Create domain functions in `maxq-server/src/domain/[entity]/`
+1. Add types to `maxq/src/types/`
+2. Create migration: `npm run migrate:maxq:make migration_name`
+3. Edit migration file in `database/maxq/migrations/`
+4. Create domain functions in `maxq/src/domain/`
 5. Add repository interface and implementations
-6. Add routes in `maxq-server/src/routes/`
-7. Update client in `maxq-client/src/index.ts`
+6. Add routes in `maxq/src/routes/`
 
 ### Adding a New API Endpoint
 
@@ -878,7 +878,7 @@ for (const step of response.steps) {
 2. **Step execution issues**: Verify step.sh exists and environment variables are passed
 3. **Stage callback issues**: Check if stage is marked as final or if previous stage completed
 4. **Artifact issues**: Verify namespacing (stepName[sequence]/artifactName)
-5. **Database connection**: Check SQLITE_PATH environment variable for SQLite database path
+5. **Database connection**: Check MAXQ_DATA_DIR environment variable for data directory path
 6. **JSON fields**: Ensure JSON fields are parsed from TEXT (SQLite stores JSON as TEXT)
 
 ## Security Model

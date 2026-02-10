@@ -3,18 +3,18 @@ import { Logger, consoleLogger } from "./test-logger.js";
 
 export interface TestServerOptions {
   port?: number;
-  dbPath?: string;
+  dataDir?: string;
   maxRetries?: number;
   retryDelay?: number;
   logger?: Logger;
   flowsRoot?: string;
-  maxConcurrentSteps?: number; // Add support for concurrency limit
+  maxConcurrentSteps?: number;
 }
 
 export class TestServer {
   private process: ChildProcess | null = null;
   private port: number;
-  private dbPath: string;
+  private dataDir: string;
   private maxRetries: number;
   private retryDelay: number;
   private logger: Logger;
@@ -28,12 +28,12 @@ export class TestServer {
     } else {
       this.port = options.port || 5099;
     }
-    this.dbPath = options.dbPath || `/tmp/maxq_test_${Date.now()}.db`;
+    this.dataDir = options.dataDir || `/tmp/maxq_test_${Date.now()}`;
     this.maxRetries = options.maxRetries || 30;
     this.retryDelay = options.retryDelay || 1000;
     this.logger = options.logger || consoleLogger;
     this.flowsRoot = options.flowsRoot || "./flows";
-    this.maxConcurrentSteps = options.maxConcurrentSteps || 10; // Default to 10
+    this.maxConcurrentSteps = options.maxConcurrentSteps || 10;
   }
 
   getPort(): number {
@@ -69,7 +69,7 @@ export class TestServer {
         ...process.env,
         NODE_ENV: "test",
         MAXQ_SERVER_PORT: this.port.toString(),
-        MAXQ_SQLITE_PATH: this.dbPath, // SQLite database path for test database
+        MAXQ_DATA_DIR: this.dataDir,
         MAXQ_API_KEY: process.env.MAXQ_API_KEY || "test-token",
         MAXQ_FLOWS_ROOT: this.flowsRoot,
         MAXQ_MAX_CONCURRENT_STEPS: this.maxConcurrentSteps.toString(), // Set concurrency limit
@@ -192,8 +192,8 @@ export class TestServer {
         this.port = options.port;
       }
     }
-    if (options.dbPath !== undefined) {
-      this.dbPath = options.dbPath;
+    if (options.dataDir !== undefined) {
+      this.dataDir = options.dataDir;
     }
     if (options.maxConcurrentSteps !== undefined) {
       this.maxConcurrentSteps = options.maxConcurrentSteps;
